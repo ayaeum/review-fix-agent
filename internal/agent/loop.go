@@ -125,14 +125,16 @@ func (l *Loop) stopHook(remindersLeft int) (bool, message.Message) {
 		return true, message.NewUserText(
 			"You stopped without submitting the review. Call report_findings now with your evidence-bound findings " +
 				"(file, line, evidence, impact for each). If you found no issues, call it with an empty findings array " +
-				"and explain reviewed_scope.")
+				"and explain reviewed_scope. Use the same natural language as the user's request for all human-facing text; " +
+				"use Chinese when the request is Chinese.")
 	case permission.ModeFix:
 		if l.ToolCtx.Sink != nil && l.ToolCtx.Sink.HasFix() {
 			return false, message.Message{}
 		}
 		return true, message.NewUserText(
 			"You stopped without submitting the fix report. Call report_fix now with summary, changed_files, and " +
-				"verification outcomes. If you could not fix the issue, still call it and explain the residual risk.")
+				"verification outcomes. If you could not fix the issue, still call it and explain the residual risk. " +
+				"Use the same natural language as the user's request for all human-facing text; use Chinese when the request is Chinese.")
 	}
 	return false, message.Message{}
 }

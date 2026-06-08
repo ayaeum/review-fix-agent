@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Finding is a single evidence-bound review result.
@@ -81,40 +82,92 @@ func (r Report) JSON() string {
 func (r Report) Markdown() string {
 	var b strings.Builder
 	c := r.Counts()
-	b.WriteString("# Code Review Report\n\n")
-	fmt.Fprintf(&b, "**%d finding(s)** — high: %d, medium: %d, low: %d, info: %d\n\n",
-		len(r.Findings), c["high"], c["medium"], c["low"], c["info"])
+	zh := r.hasChineseText()
+	if zh {
+		b.WriteString("# 代码审查报告\n\n")
+		fmt.Fprintf(&b, "**%d 个问题** - high: %d, medium: %d, low: %d, info: %d\n\n",
+			len(r.Findings), c["high"], c["medium"], c["low"], c["info"])
+	} else {
+		b.WriteString("# Code Review Report\n\n")
+		fmt.Fprintf(&b, "**%d finding(s)** — high: %d, medium: %d, low: %d, info: %d\n\n",
+			len(r.Findings), c["high"], c["medium"], c["low"], c["info"])
+	}
 
 	if len(r.Findings) == 0 {
-		b.WriteString("_No evidence-backed issues found in the reviewed scope._\n\n")
+		if zh {
+			b.WriteString("_在已审查范围内未发现有证据支撑的问题。_\n\n")
+		} else {
+			b.WriteString("_No evidence-backed issues found in the reviewed scope._\n\n")
+		}
 	}
 	for i, f := range r.Sorted() {
 		fmt.Fprintf(&b, "## %d. [%s] %s\n", i+1, strings.ToUpper(f.Severity), f.Title)
-		fmt.Fprintf(&b, "- **Location:** `%s:%d`\n", f.File, f.Line)
-		fmt.Fprintf(&b, "- **Evidence:** %s\n", f.Evidence)
-		fmt.Fprintf(&b, "- **Impact:** %s\n", f.Impact)
+		if zh {
+			fmt.Fprintf(&b, "- **位置:** `%s:%d`\n", f.File, f.Line)
+			fmt.Fprintf(&b, "- **证据:** %s\n", f.Evidence)
+			fmt.Fprintf(&b, "- **影响:** %s\n", f.Impact)
+		} else {
+			fmt.Fprintf(&b, "- **Location:** `%s:%d`\n", f.File, f.Line)
+			fmt.Fprintf(&b, "- **Evidence:** %s\n", f.Evidence)
+			fmt.Fprintf(&b, "- **Impact:** %s\n", f.Impact)
+		}
 		if strings.TrimSpace(f.SuggestedFix) != "" {
-			fmt.Fprintf(&b, "- **Suggested fix:** %s\n", f.SuggestedFix)
+			if zh {
+				fmt.Fprintf(&b, "- **建议修复:** %s\n", f.SuggestedFix)
+			} else {
+				fmt.Fprintf(&b, "- **Suggested fix:** %s\n", f.SuggestedFix)
+			}
 		}
 		b.WriteString("\n")
 	}
 
 	if len(r.ReviewedScope) > 0 {
-		b.WriteString("## Reviewed scope\n")
+		if zh {
+			b.WriteString("## 已审查范围\n")
+		} else {
+			b.WriteString("## Reviewed scope\n")
+		}
 		for _, s := range r.ReviewedScope {
 			fmt.Fprintf(&b, "- %s\n", s)
 		}
 		b.WriteString("\n")
 	}
 	if len(r.NotReviewed) > 0 {
-		b.WriteString("## Not reviewed\n")
+		if zh {
+			b.WriteString("## 未审查范围\n")
+		} else {
+			b.WriteString("## Not reviewed\n")
+		}
 		for _, s := range r.NotReviewed {
 			fmt.Fprintf(&b, "- %s\n", s)
 		}
 		b.WriteString("\n")
 	}
 	if strings.TrimSpace(r.Verification) != "" {
-		fmt.Fprintf(&b, "## Verification\n%s\n", r.Verification)
+		if zh {
+			fmt.Fprintf(&b, "## 验证\n%s\n", r.Verification)
+		} else {
+			fmt.Fprintf(&b, "## Verification\n%s\n", r.Verification)
+		}
 	}
 	return b.String()
+}
+
+func (r Report) hasChineseText() bool {
+	var b strings.Builder
+	for _, f := range r.Findings {
+		b.WriteString(f.Title)
+		b.WriteString(f.Evidence)
+		b.WriteString(f.Impact)
+		b.WriteString(f.SuggestedFix)
+	}
+	b.WriteString(strings.Join(r.ReviewedScope, ""))
+	b.WriteString(strings.Join(r.NotReviewed, ""))
+	b.WriteString(r.Verification)
+	for _, r := range b.String() {
+		if unicode.Is(unicode.Han, r) {
+			return true
+		}
+	}
+	return false
 }

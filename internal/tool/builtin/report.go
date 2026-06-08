@@ -17,7 +17,8 @@ func (ReportFindingsTool) Name() string { return "report_findings" }
 func (ReportFindingsTool) Description() string {
 	return "Submit the final structured code-review report. Call this exactly once when the review is complete. " +
 		"Every finding must bind to a file and line and include concrete evidence and impact. " +
-		"Do not include style nits unless they affect correctness, maintainability, or security."
+		"Do not include style nits unless they affect correctness, maintainability, or security. " +
+		"Use the same natural language as the user's request for all human-facing strings; use Chinese when the request is Chinese."
 }
 
 func (ReportFindingsTool) InputSchema() map[string]any {
@@ -95,7 +96,8 @@ func (ReportFixTool) Name() string { return "report_fix" }
 
 func (ReportFixTool) Description() string {
 	return "Submit the final fix report. Call this exactly once after applying the minimal patch and running verification. " +
-		"Explain the patch scope, list changed files, and report verification outcome honestly — including failures."
+		"Explain the patch scope, list changed files, and report verification outcome honestly — including failures. " +
+		"Use the same natural language as the user's request for all human-facing strings; use Chinese when the request is Chinese."
 }
 
 func (ReportFixTool) InputSchema() map[string]any {
