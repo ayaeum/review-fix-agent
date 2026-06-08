@@ -13,11 +13,12 @@ import (
 
 // Scope describes what the agent should work on for this run.
 type Scope struct {
-	Mode  permission.Mode
-	Base  string   // diff base ref (optional)
-	Files []string // explicit focus files (optional)
-	Issue string   // Fix Mode: the known issue
-	Focus string   // Review Mode: optional focus prompt
+	Mode   permission.Mode
+	Base   string   // diff base ref (optional)
+	Commit string   // Review Mode: commit to review (optional)
+	Files  []string // explicit focus files (optional)
+	Issue  string   // Fix Mode: the known issue
+	Focus  string   // Review Mode: optional focus prompt
 }
 
 // Built is the assembled context handed to the loop.
@@ -38,7 +39,10 @@ func NewManager(cwd string) *Manager { return &Manager{Cwd: cwd} }
 
 // Build assembles the system prompt and the initial user message.
 func (m *Manager) Build(ctx context.Context, scope Scope) (Built, error) {
-	diff, _ := RunGitDiff(ctx, m.Cwd, scope.Base)
+	diff, err := RunGitDiff(ctx, m.Cwd, scope.Base, scope.Commit)
+	if err != nil && strings.TrimSpace(scope.Commit) != "" {
+		return Built{}, fmt.Errorf("collect diff: %w", err)
+	}
 	changed := ParseUnifiedDiff(diff)
 	rules := LoadRuleFiles(ctx, m.Cwd)
 
@@ -91,6 +95,10 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 		for _, f := range scope.Files {
 			fmt.Fprintf(&b, "- %s\n", f)
 		}
+	}
+
+	if strings.TrimSpace(scope.Commit) != "" {
+		fmt.Fprintf(&b, "\n## Commit under review\n- %s\n", scope.Commit)
 	}
 
 	if len(changed) > 0 {

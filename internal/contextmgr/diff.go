@@ -141,12 +141,15 @@ func parseStart(s string) int {
 	return n
 }
 
-// RunGitDiff returns the working-tree diff. If base is non-empty it diffs
-// against that ref (three-dot, i.e. since the merge-base); otherwise it shows
-// uncommitted changes (including staged) against HEAD.
-func RunGitDiff(ctx context.Context, cwd, base string) (string, error) {
+// RunGitDiff returns the requested review diff. If commit is non-empty it shows
+// that commit's patch; else if base is non-empty it diffs against that ref
+// (three-dot, i.e. since the merge-base); otherwise it shows uncommitted changes
+// (including staged) against HEAD.
+func RunGitDiff(ctx context.Context, cwd, base, commit string) (string, error) {
 	var args []string
-	if base != "" {
+	if commit != "" {
+		args = []string{"show", "--format=", "--no-ext-diff", "--no-color", commit, "--"}
+	} else if base != "" {
 		args = []string{"diff", "--no-color", base + "...", "--"}
 	} else {
 		args = []string{"diff", "--no-color", "HEAD", "--"}
@@ -155,6 +158,9 @@ func RunGitDiff(ctx context.Context, cwd, base string) (string, error) {
 	cmd.Dir = cwd
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if commit != "" {
+			return string(out), err
+		}
 		// Fall back to plain unstaged diff (e.g. fresh repo without HEAD).
 		fb := exec.CommandContext(ctx, "git", "diff", "--no-color")
 		fb.Dir = cwd

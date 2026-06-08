@@ -58,6 +58,7 @@ func main() {
 
 	fs := flag.NewFlagSet(sub, flag.ExitOnError)
 	base := fs.String("base", "", "diff base ref (e.g. main); default shows uncommitted changes vs HEAD")
+	commit := fs.String("commit", "", "review a single commit by SHA/ref (review mode only)")
 	filesCSV := fs.String("files", "", "comma-separated focus files")
 	modelID := fs.String("model", envOr("RFA_MODEL", ""), "model id (default: provider default)")
 	provider := fs.String("provider", envOr("RFA_PROVIDER", ""), "model provider: openai | anthropic (default: openai)")
@@ -73,6 +74,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, "fix requires an issue description: rfa fix \"config nil deref crashes startup\"")
 		os.Exit(2)
 	}
+	if *commit != "" {
+		if mode != permission.ModeReview {
+			fmt.Fprintln(os.Stderr, "--commit is only supported in review mode")
+			os.Exit(2)
+		}
+		if *base != "" {
+			fmt.Fprintln(os.Stderr, "--commit and --base are mutually exclusive")
+			os.Exit(2)
+		}
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -81,6 +92,7 @@ func main() {
 
 	var scope contextmgr.Scope
 	scope.Base = *base
+	scope.Commit = *commit
 	if *filesCSV != "" {
 		for _, f := range strings.Split(*filesCSV, ",") {
 			if f = strings.TrimSpace(f); f != "" {
