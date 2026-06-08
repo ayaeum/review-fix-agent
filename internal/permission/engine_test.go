@@ -31,6 +31,8 @@ func (f fakeTool) ReadOnly(in map[string]any) bool {
 
 var (
 	readTool  = fakeTool{name: "read_file", readOnly: func(map[string]any) bool { return true }}
+	grepTool  = fakeTool{name: "grep", readOnly: func(map[string]any) bool { return true }}
+	globTool  = fakeTool{name: "glob", readOnly: func(map[string]any) bool { return true }}
 	editTool  = fakeTool{name: "edit_file"}
 	writeTool = fakeTool{name: "write_file"}
 	bashTool  = fakeTool{name: "run_command", readOnly: func(in map[string]any) bool {
@@ -56,6 +58,42 @@ func TestReviewModeAllowsReadOnly(t *testing.T) {
 	}
 	if got := e.Check(bashTool, map[string]any{"command": "go generate ./..."}); got.Decision != Deny {
 		t.Errorf("review mutating cmd = %v, want Deny", got.Decision)
+	}
+}
+
+func TestReadPathToolsStayWithinCwd(t *testing.T) {
+	cwd := mustAbs(t, ".")
+	modes := []Mode{ModeReview, ModeFix}
+	tools := []tool.Tool{readTool, grepTool, globTool}
+
+	for _, mode := range modes {
+		for _, tl := range tools {
+			name := tl.Name()
+			t.Run(string(mode)+"/"+name+"/absolute_outside", func(t *testing.T) {
+				e := &Engine{Mode: mode, Cwd: cwd}
+				if got := e.Check(tl, map[string]any{"path": "/etc/passwd"}); got.Decision != Deny {
+					t.Errorf("%s %s absolute outside = %v, want Deny", mode, name, got.Decision)
+				}
+			})
+			t.Run(string(mode)+"/"+name+"/traversal_outside", func(t *testing.T) {
+				e := &Engine{Mode: mode, Cwd: cwd}
+				if got := e.Check(tl, map[string]any{"path": "../../etc/passwd"}); got.Decision != Deny {
+					t.Errorf("%s %s traversal outside = %v, want Deny", mode, name, got.Decision)
+				}
+			})
+			t.Run(string(mode)+"/"+name+"/relative_inside", func(t *testing.T) {
+				e := &Engine{Mode: mode, Cwd: cwd}
+				if got := e.Check(tl, map[string]any{"path": "internal/permission/engine.go"}); got.Decision != Allow {
+					t.Errorf("%s %s relative inside = %v (%s), want Allow", mode, name, got.Decision, got.Reason)
+				}
+			})
+			t.Run(string(mode)+"/"+name+"/unset_path", func(t *testing.T) {
+				e := &Engine{Mode: mode, Cwd: cwd}
+				if got := e.Check(tl, map[string]any{}); got.Decision != Allow {
+					t.Errorf("%s %s unset path = %v (%s), want Allow", mode, name, got.Decision, got.Reason)
+				}
+			})
+		}
 	}
 }
 

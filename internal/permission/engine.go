@@ -56,6 +56,12 @@ var writerTools = map[string]bool{
 	"write_file": true,
 }
 
+var readPathTools = map[string]bool{
+	"read_file": true,
+	"grep":      true,
+	"glob":      true,
+}
+
 // VisibleTools filters the tool list to what the model may see in the current
 // mode. Hiding writers in Review Mode prevents the model from even attempting a
 // mutation — the doc's "filter visibility before execution" principle.
@@ -77,6 +83,15 @@ func (e *Engine) Check(t tool.Tool, input map[string]any) Result {
 	// Hard block: writers in review mode (defence-in-depth behind VisibleTools).
 	if e.Mode == ModeReview && writerTools[name] {
 		return Result{Deny, "Review Mode is read-only; code changes are not permitted"}
+	}
+
+	// Read tools may only inspect paths within the working directory. Empty paths
+	// are allowed because grep/glob default to the working directory.
+	if readPathTools[name] {
+		path, _ := input["path"].(string)
+		if path != "" && !e.withinCwd(path) {
+			return Result{Deny, fmt.Sprintf("path %q is outside the working directory", path)}
+		}
 	}
 
 	// Read-only invocations are always allowed.
