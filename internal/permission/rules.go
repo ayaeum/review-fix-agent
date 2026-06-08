@@ -24,8 +24,9 @@ const (
 var readOnlyPrefixes = []string{
 	"git diff", "git log", "git show", "git status", "git blame", "git ls-files",
 	"git rev-parse", "git branch", "git remote -v", "git stash list",
-	"ls", "cat", "head", "tail", "wc", "find", "tree", "pwd", "echo", "stat",
+	"ls", "cat", "head", "tail", "wc", "find", "tree", "pwd", "echo", "stat", "nl",
 	"grep", "rg", "ag", "fd", "which", "file", "du", "df",
+	"sed -n", "awk", "sort", "uniq",
 	"go test", "go vet", "go build", "go run", "go list", "gofmt -l", "golangci-lint run",
 	"npm test", "npm run test", "yarn test", "pnpm test", "bun test", "bun run test",
 	"pytest", "python -m pytest", "go doc", "tsc --noemit", "tsc --noEmit",
@@ -68,18 +69,26 @@ var fileRedirect = regexp.MustCompile(`(^|[^0-9&])>>?\s*[A-Za-z0-9._/~"'-]`)
 // performs no file-writing redirection.
 func ClassifyCommand(cmd string) CommandClass {
 	c := strings.TrimSpace(cmd)
-	for _, re := range destructivePatterns {
-		if re.MatchString(c) {
-			return ClassDestructive
-		}
+	if hasDestructivePattern(c) {
+		return ClassDestructive
+	}
+	segments := splitShellSegments(c)
+	normalized := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		normalized = append(normalized, normalizeCommandSegment(seg))
+	}
+	if hasDestructivePattern(strings.Join(normalized, " && ")) {
+		return ClassDestructive
 	}
 	if fileRedirect.MatchString(c) {
 		return ClassMutating
 	}
-	segments := splitShellSegments(c)
+	if mutatingFilterCommand(c) {
+		return ClassMutating
+	}
 	allReadOnly := len(segments) > 0
 	for _, seg := range segments {
-		seg = strings.TrimSpace(seg)
+		seg = normalizeCommandSegment(seg)
 		if seg == "" {
 			continue
 		}
@@ -92,6 +101,54 @@ func ClassifyCommand(cmd string) CommandClass {
 		return ClassReadOnly
 	}
 	return ClassMutating
+}
+
+func mutatingFilterCommand(cmd string) bool {
+	low := strings.ToLower(cmd)
+	return strings.Contains(low, "sed -i") || strings.Contains(low, "perl -i")
+}
+
+func hasDestructivePattern(cmd string) bool {
+	for _, re := range destructivePatterns {
+		if re.MatchString(cmd) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeCommandSegment(seg string) string {
+	seg = strings.TrimSpace(seg)
+	fields := strings.Fields(seg)
+	if len(fields) == 0 || strings.ToLower(fields[0]) != "git" {
+		return seg
+	}
+
+	i := 1
+	for i < len(fields) {
+		f := fields[i]
+		switch {
+		case f == "-C" || f == "-c" || f == "--git-dir" || f == "--work-tree" || f == "--namespace":
+			if i+1 >= len(fields) {
+				return seg
+			}
+			i += 2
+		case strings.HasPrefix(f, "-C") && len(f) > 2:
+			i++
+		case strings.HasPrefix(f, "-c") && len(f) > 2:
+			i++
+		case strings.HasPrefix(f, "--git-dir=") || strings.HasPrefix(f, "--work-tree=") || strings.HasPrefix(f, "--namespace="):
+			i++
+		case f == "-p" || f == "-P" || f == "--paginate" || f == "--no-pager" || f == "--bare" || f == "--literal-pathspecs" || f == "--no-optional-locks":
+			i++
+		default:
+			if strings.HasPrefix(f, "-") {
+				return seg
+			}
+			return "git " + strings.Join(fields[i:], " ")
+		}
+	}
+	return seg
 }
 
 func hasReadOnlyPrefix(seg string) bool {
