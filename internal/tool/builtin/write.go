@@ -17,16 +17,16 @@ type WriteTool struct{}
 func (WriteTool) Name() string { return "write_file" }
 
 func (WriteTool) Description() string {
-	return "Create a new file or overwrite an existing one (Fix Mode only). To overwrite, read_file it first. " +
-		"Prefer edit_file for changes to existing files; use write_file for genuinely new files."
+	return "创建新文件或覆盖已有文件（仅 Fix Mode 可用）。覆盖已有文件前必须先 read_file。" +
+		"修改已有文件时优先使用 edit_file；write_file 主要用于真正的新文件。"
 }
 
 func (WriteTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "File path to write."},
-			"content": map[string]any{"type": "string", "description": "Full file contents."},
+			"path":    map[string]any{"type": "string", "description": "要写入的文件路径。"},
+			"content": map[string]any{"type": "string", "description": "完整文件内容。"},
 		},
 		"required": []string{"path", "content"},
 	}

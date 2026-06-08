@@ -19,18 +19,18 @@ type GrepTool struct{}
 func (GrepTool) Name() string { return "grep" }
 
 func (GrepTool) Description() string {
-	return "Search file contents using a Go (RE2) regular expression. Returns matching lines as path:line:text. " +
-		"Optionally restrict to a subtree (path) and a filename suffix (glob, e.g. \".go\")."
+	return "使用 Go（RE2）正则表达式搜索文件内容。返回格式为 path:line:text 的匹配行。" +
+		"可选地用 path 限定子目录，用 glob 限定文件名后缀（例如 \".go\"）。"
 }
 
 func (GrepTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"pattern":     map[string]any{"type": "string", "description": "RE2 regular expression."},
-			"path":        map[string]any{"type": "string", "description": "Subtree to search (optional, default working dir)."},
-			"glob":        map[string]any{"type": "string", "description": "Filename suffix filter, e.g. \".go\" (optional)."},
-			"max_results": map[string]any{"type": "integer", "description": "Max matching lines (optional, default 200)."},
+			"pattern":     map[string]any{"type": "string", "description": "RE2 正则表达式。"},
+			"path":        map[string]any{"type": "string", "description": "要搜索的子树（可选，默认工作目录）。"},
+			"glob":        map[string]any{"type": "string", "description": "文件名后缀过滤，例如 \".go\"（可选）。"},
+			"max_results": map[string]any{"type": "integer", "description": "最多返回的匹配行数（可选，默认 200）。"},
 		},
 		"required": []string{"pattern"},
 	}

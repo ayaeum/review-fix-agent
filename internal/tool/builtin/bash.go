@@ -20,17 +20,17 @@ type BashTool struct{}
 func (BashTool) Name() string { return "run_command" }
 
 func (BashTool) Description() string {
-	return "Run a shell command in the working directory. Use it for git inspection (git diff/log/show) and for " +
-		"verification (go test, go vet, npm test, etc.). Read-only commands run freely; mutating commands need approval; " +
-		"destructive commands (rm, git push/commit/reset, sudo) are blocked — surface those as residual risk instead."
+	return "在工作目录中运行 shell 命令。用于 git 检查（git diff/log/show）以及验证命令" +
+		"（go test、go vet、npm test 等）。只读命令可直接运行；会修改状态的命令需要批准；" +
+		"破坏性命令（rm、git push/commit/reset、sudo）会被阻止，请将这类需求记录为残余风险。"
 }
 
 func (BashTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"command":         map[string]any{"type": "string", "description": "Shell command to execute."},
-			"timeout_seconds": map[string]any{"type": "integer", "description": "Timeout in seconds (optional, default 120, max 600)."},
+			"command":         map[string]any{"type": "string", "description": "要执行的 shell 命令。"},
+			"timeout_seconds": map[string]any{"type": "integer", "description": "超时时间，单位秒（可选，默认 120，最大 600）。"},
 		},
 		"required": []string{"command"},
 	}

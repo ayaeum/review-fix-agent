@@ -148,18 +148,17 @@ func (l *Loop) stopHook(remindersLeft int) (bool, message.Message) {
 			return false, message.Message{}
 		}
 		return true, message.NewUserText(
-			"You stopped without submitting the review. Call report_findings now with your evidence-bound findings " +
-				"(file, line, evidence, impact for each). If you found no issues, call it with an empty findings array " +
-				"and explain reviewed_scope. Use the same natural language as the user's request for all human-facing text; " +
-				"use Chinese when the request is Chinese.")
+			"你还没有提交审查结果就停止了。现在请调用 report_findings，提交有证据绑定的 findings，" +
+				"每个 finding 都要包含 file、line、evidence 和 impact。如果没有发现问题，请使用空 findings 数组，" +
+				"并说明 reviewed_scope。所有面向人的文本都使用与用户请求相同的自然语言；用户请求是中文时必须使用中文。")
 	case permission.ModeFix:
 		if l.ToolCtx.Sink != nil && l.ToolCtx.Sink.HasFix() {
 			return false, message.Message{}
 		}
 		return true, message.NewUserText(
-			"You stopped without submitting the fix report. Call report_fix now with summary, changed_files, and " +
-				"verification outcomes. If you could not fix the issue, still call it and explain the residual risk. " +
-				"Use the same natural language as the user's request for all human-facing text; use Chinese when the request is Chinese.")
+			"你还没有提交修复报告就停止了。现在请调用 report_fix，提交 summary、changed_files 和 verification outcomes。 " +
+				"如果无法修复，也必须调用 report_fix 并说明 residual_risk。所有面向人的文本都使用与用户请求相同的自然语言；" +
+				"用户请求是中文时必须使用中文。")
 	}
 	return false, message.Message{}
 }

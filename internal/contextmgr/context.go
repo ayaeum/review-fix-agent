@@ -62,11 +62,11 @@ func (m *Manager) Build(ctx context.Context, scope Scope) (Built, error) {
 // systemState appends environment facts to the system prompt.
 func (m *Manager) systemState(ctx context.Context) string {
 	var b strings.Builder
-	b.WriteString("# Environment\n")
-	fmt.Fprintf(&b, "- Working directory: %s\n", m.Cwd)
-	fmt.Fprintf(&b, "- Date: %s\n", time.Now().Format("2006-01-02"))
+	b.WriteString("# 环境\n")
+	fmt.Fprintf(&b, "- 工作目录：%s\n", m.Cwd)
+	fmt.Fprintf(&b, "- 日期：%s\n", time.Now().Format("2006-01-02"))
 	if st := gitStatus(ctx, m.Cwd); st != "" {
-		fmt.Fprintf(&b, "- Git status:\n%s\n", indent(st, "    "))
+		fmt.Fprintf(&b, "- Git 状态：\n%s\n", indent(st, "    "))
 	}
 	return b.String()
 }
@@ -76,39 +76,39 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 	var b strings.Builder
 
 	if scope.Mode == permission.ModeFix {
-		b.WriteString("# Known issue to fix\n\n")
+		b.WriteString("# 待修复的已知问题\n\n")
 		if strings.TrimSpace(scope.Issue) == "" {
-			b.WriteString("(no issue text provided; infer the issue from the diff and project state)\n")
+			b.WriteString("（未提供问题描述；请根据 diff 和项目状态推断问题）\n")
 		} else {
 			b.WriteString(scope.Issue)
 			b.WriteString("\n")
 		}
 	} else {
-		b.WriteString("# Code review request\n\n")
+		b.WriteString("# 代码审查请求\n\n")
 		if strings.TrimSpace(scope.Focus) != "" {
-			fmt.Fprintf(&b, "Focus: %s\n", scope.Focus)
+			fmt.Fprintf(&b, "关注点：%s\n", scope.Focus)
 		}
 	}
 
 	if len(scope.Files) > 0 {
-		b.WriteString("\n## Explicit focus files\n")
+		b.WriteString("\n## 明确关注文件\n")
 		for _, f := range scope.Files {
 			fmt.Fprintf(&b, "- %s\n", f)
 		}
 	}
 
 	if strings.TrimSpace(scope.Commit) != "" {
-		fmt.Fprintf(&b, "\n## Commit under review\n- %s\n", scope.Commit)
+		fmt.Fprintf(&b, "\n## 待审查 commit\n- %s\n", scope.Commit)
 	}
 
 	if len(changed) > 0 {
-		b.WriteString("\n## Changed files\n")
+		b.WriteString("\n## 变更文件\n")
 		for _, c := range changed {
 			if c.Binary {
-				fmt.Fprintf(&b, "- %s (binary)\n", c.Path())
+				fmt.Fprintf(&b, "- %s（二进制）\n", c.Path())
 				continue
 			}
-			fmt.Fprintf(&b, "- %s (%d hunk(s), %d added line(s))\n", c.Path(), len(c.Hunks), len(c.AddedLines()))
+			fmt.Fprintf(&b, "- %s（%d 个 hunk，%d 行新增）\n", c.Path(), len(c.Hunks), len(c.AddedLines()))
 		}
 	}
 
@@ -117,21 +117,21 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 		b.WriteString(truncateDiff(diff))
 		b.WriteString("\n```\n")
 	} else {
-		b.WriteString("\n## Diff\n(no diff detected; use git via run_command or read files directly to establish scope)\n")
+		b.WriteString("\n## Diff\n（未检测到 diff；请通过 run_command 使用 git，或直接读取文件来确定范围）\n")
 	}
 
 	if len(rules) > 0 {
-		b.WriteString("\n## Project rules\n")
+		b.WriteString("\n## 项目规则\n")
 		for _, r := range rules {
 			fmt.Fprintf(&b, "\n### %s\n%s\n", r.Path, r.Content)
 		}
 	}
 
-	b.WriteString("\n## What to do\n")
+	b.WriteString("\n## 任务步骤\n")
 	if scope.Mode == permission.ModeFix {
 		b.WriteString(fixInstructions)
 		if hints := verify.Suggest(m.Cwd); len(hints) > 0 {
-			b.WriteString("\n\n## Available verification commands (detected)\n")
+			b.WriteString("\n\n## 检测到的可用验证命令\n")
 			for _, h := range hints {
 				fmt.Fprintf(&b, "- `%s`\n", h)
 			}
@@ -165,5 +165,5 @@ func truncateDiff(diff string) string {
 	if len(diff) <= max {
 		return diff
 	}
-	return diff[:max] + "\n[... diff truncated; read specific files for full context ...]"
+	return diff[:max] + "\n[... diff 已截断；请读取具体文件获取完整上下文 ...]"
 }

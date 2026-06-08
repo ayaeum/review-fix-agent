@@ -15,10 +15,10 @@ type ReportFindingsTool struct{}
 func (ReportFindingsTool) Name() string { return "report_findings" }
 
 func (ReportFindingsTool) Description() string {
-	return "Submit the final structured code-review report. Call this exactly once when the review is complete. " +
-		"Every finding must bind to a file and line and include concrete evidence and impact. " +
-		"Do not include style nits unless they affect correctness, maintainability, or security. " +
-		"Use the same natural language as the user's request for all human-facing strings; use Chinese when the request is Chinese."
+	return "提交最终结构化代码审查报告。审查完成时必须且只调用一次。" +
+		"每个 finding 都必须绑定到文件和行号，并包含具体 evidence 和 impact。" +
+		"不要包含纯风格问题，除非它影响正确性、可维护性或安全性。" +
+		"所有面向人的字符串都使用与用户请求相同的自然语言；用户请求是中文时必须使用中文。"
 }
 
 func (ReportFindingsTool) InputSchema() map[string]any {
@@ -29,8 +29,8 @@ func (ReportFindingsTool) InputSchema() map[string]any {
 			"file":          map[string]any{"type": "string"},
 			"line":          map[string]any{"type": "integer"},
 			"title":         map[string]any{"type": "string"},
-			"evidence":      map[string]any{"type": "string", "description": "Concrete proof: the failing path, caller behavior, or value that triggers the issue."},
-			"impact":        map[string]any{"type": "string", "description": "The behavior regression or failure this causes."},
+			"evidence":      map[string]any{"type": "string", "description": "具体证据：触发问题的失败路径、调用方行为或取值。"},
+			"impact":        map[string]any{"type": "string", "description": "该问题导致的行为回归或故障。"},
 			"suggested_fix": map[string]any{"type": "string"},
 		},
 		"required": []string{"severity", "file", "line", "title", "evidence", "impact"},
@@ -41,7 +41,7 @@ func (ReportFindingsTool) InputSchema() map[string]any {
 			"findings":       map[string]any{"type": "array", "items": finding},
 			"reviewed_scope": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"not_reviewed":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"verification":   map[string]any{"type": "string", "description": "What verification was run, or why none (e.g. 'not run; review-only mode')."},
+			"verification":   map[string]any{"type": "string", "description": "执行了哪些验证，或为什么没有验证（例如 'not run; review-only mode'）。"},
 		},
 		"required": []string{"findings", "reviewed_scope"},
 	}
@@ -95,9 +95,9 @@ type ReportFixTool struct{}
 func (ReportFixTool) Name() string { return "report_fix" }
 
 func (ReportFixTool) Description() string {
-	return "Submit the final fix report. Call this exactly once after applying the minimal patch and running verification. " +
-		"Explain the patch scope, list changed files, and report verification outcome honestly — including failures. " +
-		"Use the same natural language as the user's request for all human-facing strings; use Chinese when the request is Chinese."
+	return "提交最终修复报告。应用最小补丁并完成验证后，必须且只调用一次。" +
+		"说明补丁范围，列出变更文件，并如实报告验证结果，包括失败。" +
+		"所有面向人的字符串都使用与用户请求相同的自然语言；用户请求是中文时必须使用中文。"
 }
 
 func (ReportFixTool) InputSchema() map[string]any {
@@ -113,11 +113,11 @@ func (ReportFixTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"summary":       map[string]any{"type": "string", "description": "What was changed and why, tied to the known issue."},
-			"patch_scope":   map[string]any{"type": "string", "description": "The boundary of the change; what was intentionally left untouched."},
+			"summary":       map[string]any{"type": "string", "description": "结合已知问题说明改了什么以及为什么改。"},
+			"patch_scope":   map[string]any{"type": "string", "description": "变更边界；说明哪些内容是有意不改的。"},
 			"changed_files": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"verification":  map[string]any{"type": "array", "items": verification, "description": "Commands run and their outcomes."},
-			"residual_risk": map[string]any{"type": "string", "description": "Anything still risky, unverified, or out of scope."},
+			"verification":  map[string]any{"type": "array", "items": verification, "description": "执行过的命令及其结果。"},
+			"residual_risk": map[string]any{"type": "string", "description": "仍有风险、未验证或超出范围的事项。"},
 		},
 		"required": []string{"summary", "changed_files", "verification"},
 	}

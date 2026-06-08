@@ -16,17 +16,17 @@ type ReadTool struct{}
 func (ReadTool) Name() string { return "read_file" }
 
 func (ReadTool) Description() string {
-	return "Read a UTF-8 text file from the working tree and return its contents with line numbers. " +
-		"Use offset/limit to read a window of a large file. Always read a file before editing it."
+	return "读取工作区中的 UTF-8 文本文件，并带行号返回内容。" +
+		"可使用 offset/limit 读取大文件的一段窗口。编辑文件前必须先读取该文件。"
 }
 
 func (ReadTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path":   map[string]any{"type": "string", "description": "File path, relative to the working directory or absolute."},
-			"offset": map[string]any{"type": "integer", "description": "1-based line to start from (optional)."},
-			"limit":  map[string]any{"type": "integer", "description": "Max number of lines to read (optional, default 2000)."},
+			"path":   map[string]any{"type": "string", "description": "文件路径，可为相对工作目录的路径或绝对路径。"},
+			"offset": map[string]any{"type": "integer", "description": "起始行号，从 1 开始（可选）。"},
+			"limit":  map[string]any{"type": "integer", "description": "最多读取的行数（可选，默认 2000）。"},
 		},
 		"required": []string{"path"},
 	}

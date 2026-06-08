@@ -18,16 +18,16 @@ type GlobTool struct{}
 func (GlobTool) Name() string { return "glob" }
 
 func (GlobTool) Description() string {
-	return "Find files by glob pattern (supports **, *, ?), e.g. \"**/*.go\" or \"internal/**/*_test.go\". " +
-		"Returns matching paths sorted by most-recently-modified."
+	return "按 glob 模式查找文件（支持 **、*、?），例如 \"**/*.go\" 或 \"internal/**/*_test.go\"。" +
+		"返回按最近修改时间排序的匹配路径。"
 }
 
 func (GlobTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"pattern": map[string]any{"type": "string", "description": "Glob pattern, e.g. \"**/*.go\"."},
-			"path":    map[string]any{"type": "string", "description": "Root to search (optional, default working dir)."},
+			"pattern": map[string]any{"type": "string", "description": "Glob 模式，例如 \"**/*.go\"。"},
+			"path":    map[string]any{"type": "string", "description": "搜索根目录（可选，默认工作目录）。"},
 		},
 		"required": []string{"pattern"},
 	}

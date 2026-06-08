@@ -17,18 +17,18 @@ type EditTool struct{}
 func (EditTool) Name() string { return "edit_file" }
 
 func (EditTool) Description() string {
-	return "Replace an exact substring in a file (Fix Mode only). You must read_file first. " +
-		"old_string must be unique unless replace_all is true. Keep edits minimal and scoped to the known issue."
+	return "替换文件中的精确子串（仅 Fix Mode 可用）。必须先 read_file。" +
+		"除非 replace_all 为 true，否则 old_string 必须唯一。保持编辑最小，并且只围绕已知问题。"
 }
 
 func (EditTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path":        map[string]any{"type": "string", "description": "File to edit."},
-			"old_string":  map[string]any{"type": "string", "description": "Exact text to replace (include enough context to be unique)."},
-			"new_string":  map[string]any{"type": "string", "description": "Replacement text."},
-			"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence (optional, default false)."},
+			"path":        map[string]any{"type": "string", "description": "要编辑的文件。"},
+			"old_string":  map[string]any{"type": "string", "description": "要替换的精确文本（包含足够上下文以保证唯一）。"},
+			"new_string":  map[string]any{"type": "string", "description": "替换后的文本。"},
+			"replace_all": map[string]any{"type": "boolean", "description": "是否替换所有出现位置（可选，默认 false）。"},
 		},
 		"required": []string{"path", "old_string", "new_string"},
 	}

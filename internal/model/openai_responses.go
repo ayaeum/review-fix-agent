@@ -99,7 +99,7 @@ func (o *OpenAIResponses) buildBody(req Request) map[string]any {
 	}
 	instructions := req.System
 	if strings.TrimSpace(instructions) == "" {
-		instructions = "You are a code review and code fix assistant."
+		instructions = "你是一个代码审查和代码修复助手。"
 	}
 	body := map[string]any{
 		"model":        model,
