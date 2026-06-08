@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rfa trace</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --border: #30363d;
+    --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922; --purple: #bc8cff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header h1 .dim { color: var(--muted); font-weight: 400; }
+  header .spacer { flex: 1; }
+  header label { color: var(--muted); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  button { background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+  button:hover { border-color: var(--accent); }
+  main { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 49px); }
+  aside { border-right: 1px solid var(--border); overflow-y: auto; background: var(--panel); }
+  #detail { overflow-y: auto; padding: 16px 20px 80px; }
+
+  .sess { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .sess:hover { background: var(--panel2); }
+  .sess.active { background: var(--panel2); border-left: 3px solid var(--accent); padding-left: 11px; }
+  .sess .row1 { display: flex; align-items: center; gap: 8px; }
+  .sess .id { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .sess .row2 { color: var(--muted); font-size: 12px; margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  .badge.review { background: rgba(88,166,255,.15); color: var(--accent); }
+  .badge.fix { background: rgba(188,140,255,.15); color: var(--purple); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.run { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.4s infinite; }
+  .dot.done { background: var(--muted); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; min-width: 90px; }
+  .stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  .stat .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
+
+  .item { margin: 10px 0; }
+  .who { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: flex; gap: 8px; align-items: center; }
+  .bubble { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; background: var(--panel); white-space: pre-wrap; word-break: break-word; }
+  .bubble.user { background: var(--panel2); }
+  .bubble.assistant { background: var(--panel); }
+  .thinking { color: var(--muted); font-style: italic; border-left: 2px solid var(--border); padding-left: 10px; margin: 6px 0; white-space: pre-wrap; }
+
+  .tool { border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; overflow: hidden; }
+  .tool .head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--panel2); cursor: pointer; }
+  .tool .head .name { font-family: var(--mono); font-weight: 600; }
+  .tool .head .arg { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .tool .head .meta { color: var(--muted); font-size: 12px; }
+  .tool .body { padding: 0 12px; }
+  .tool .body .label { color: var(--muted); font-size: 11px; text-transform: uppercase; margin: 8px 0 3px; letter-spacing: .4px; }
+  pre { font-family: var(--mono); font-size: 12.5px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 0 0 8px; max-height: 360px; overflow-y: auto; }
+  .st-ok { color: var(--green); } .st-err { color: var(--red); } .st-run { color: var(--yellow); }
+  .ic { width: 16px; text-align: center; }
+
+  .notice { border-left: 3px solid var(--yellow); background: rgba(210,153,34,.08); color: var(--yellow); padding: 8px 12px; border-radius: 4px; margin: 8px 0; }
+  .errline { border-left: 3px solid var(--red); background: rgba(248,81,73,.08); color: var(--red); padding: 8px 12px; border-radius: 4px; margin: 8px 0; }
+  .marker { text-align: center; color: var(--muted); font-size: 12px; margin: 14px 0; position: relative; }
+  .marker span { background: var(--bg); padding: 0 12px; position: relative; z-index: 1; }
+  .marker:before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--border); }
+  .empty { color: var(--muted); text-align: center; margin-top: 60px; }
+  details > summary { cursor: pointer; color: var(--accent); font-size: 12px; outline: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>rfa <span class="dim">trace</span></h1>
+  <div class="spacer"></div>
+  <label><input type="checkbox" id="auto" checked> auto-refresh</label>
+  <button id="refresh">Refresh</button>
+</header>
+<main>
+  <aside id="list"></aside>
+  <section id="detail"><div class="empty">Select a session on the left.</div></section>
+</main>
+
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+let sessions = [];
+let currentId = null;
+let stickBottom = true;
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+function fmtTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleTimeString();
+}
+function fmtDur(ms) {
+  if (!ms) return "—";
+  if (ms < 1000) return ms + "ms";
+  return (ms / 1000).toFixed(1) + "s";
+}
+function prettyJSON(v) {
+  try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+}
+function oneLine(v) {
+  if (v == null) return "";
+  const s = typeof v === "string" ? v : JSON.stringify(v);
+  return s.length > 70 ? s.slice(0, 70) + "…" : s;
+}
+
+async function loadSessions() {
+  try {
+    const r = await fetch("/api/sessions");
+    sessions = await r.json();
+    renderList();
+  } catch (e) { console.error(e); }
+}
+
+function renderList() {
+  const el = $("#list");
+  if (!sessions.length) { el.innerHTML = '<div class="empty" style="margin-top:30px">No sessions yet.</div>'; return; }
+  el.innerHTML = sessions.map(s => `
+    <div class="sess ${s.id === currentId ? "active" : ""}" data-id="${esc(s.id)}">
+      <div class="row1">
+        <span class="badge ${esc(s.mode)}">${esc(s.mode || "?")}</span>
+        <span class="dot ${s.running ? "run" : "done"}"></span>
+        <span class="id">${esc(s.id)}</span>
+      </div>
+      <div class="row2">
+        <span>${esc(s.model || "")}</span>
+        <span>${s.turns} turns</span>
+        <span>${s.tool_calls} tools</span>
+        <span>${s.input_tokens + s.output_tokens} tok</span>
+      </div>
+    </div>`).join("");
+  el.querySelectorAll(".sess").forEach(n => n.onclick = () => { currentId = n.dataset.id; stickBottom = true; renderList(); loadDetail(); });
+}
+
+async function loadDetail() {
+  if (!currentId) return;
+  const detailEl = $("#detail");
+  const wasBottom = detailEl.scrollHeight - detailEl.scrollTop - detailEl.clientHeight < 60;
+  try {
+    const r = await fetch("/api/sessions/" + encodeURIComponent(currentId));
+    if (!r.ok) { detailEl.innerHTML = '<div class="empty">Failed to load session.</div>'; return; }
+    const d = await r.json();
+    renderDetail(d);
+    if (stickBottom && wasBottom) detailEl.scrollTop = detailEl.scrollHeight;
+  } catch (e) { console.error(e); }
+}
+
+// Merge tool_use blocks with their tool_result + start/end events into one view.
+function buildToolMap(entries) {
+  const m = {};
+  const get = id => (m[id] ||= { id });
+  for (const e of entries) {
+    if (e.type === "message" && e.blocks) {
+      for (const b of e.blocks) {
+        if (b.type === "tool_use") { const t = get(b.tool_use_id); t.name = b.tool_name; t.input = b.input; }
+        if (b.type === "tool_result") { const t = get(b.tool_use_id); t.result = b.result_text; t.isError = b.is_error; }
+      }
+    } else if (e.type === "event") {
+      if (e.kind === "tool_start") { const t = get(e.tool_use_id); t.name = t.name || e.tool; t.startTS = e.ts; }
+      if (e.kind === "tool_end") { const t = get(e.tool_use_id); t.endTS = e.ts; t.endError = e.is_error; }
+      if (e.kind === "tool_denied") { const t = get(e.tool_use_id); t.name = t.name || e.tool; t.denied = e.text; t.input = t.input || e.input; }
+    }
+  }
+  return m;
+}
+
+function toolStatus(t) {
+  if (t.denied) return { cls: "st-err", ic: "⨯", label: "denied" };
+  if (t.isError || t.endError) return { cls: "st-err", ic: "✗", label: "error" };
+  if (t.endTS || t.result != null) return { cls: "st-ok", ic: "✓", label: "ok" };
+  return { cls: "st-run", ic: "●", label: "running" };
+}
+
+function renderTool(t) {
+  const st = toolStatus(t);
+  let dur = "";
+  if (t.startTS && t.endTS) dur = fmtDur(new Date(t.endTS) - new Date(t.startTS));
+  const body = [];
+  body.push(`<div class="label">input</div><pre>${esc(prettyJSON(t.input || {}))}</pre>`);
+  if (t.denied) body.push(`<div class="label">permission denied</div><pre class="st-err">${esc(t.denied)}</pre>`);
+  if (t.result != null) body.push(`<div class="label">result</div><pre>${esc(t.result)}</pre>`);
+  return `<div class="tool">
+    <div class="head" onclick="this.parentNode.querySelector('.body').style.display = this.parentNode.querySelector('.body').style.display==='none'?'block':'none'">
+      <span class="ic ${st.cls}">${st.ic}</span>
+      <span class="name">${esc(t.name || "tool")}</span>
+      <span class="arg">${esc(oneLine(t.input))}</span>
+      <span class="meta">${dur ? dur + " · " : ""}${st.label}</span>
+    </div>
+    <div class="body">${body.join("")}</div>
+  </div>`;
+}
+
+function renderDetail(d) {
+  const m = d.meta, entries = d.entries || [];
+  const tools = buildToolMap(entries);
+  const html = [];
+
+  // stats header
+  const fx = m.has_findings != null ? (m.has_findings ? "yes" : "no") : (m.has_fix != null ? (m.has_fix ? "yes" : "no") : "—");
+  html.push(`<div class="stats">
+    <div class="stat"><div class="k">mode</div><div class="v"><span class="badge ${esc(m.mode)}">${esc(m.mode)}</span></div></div>
+    <div class="stat"><div class="k">model</div><div class="v" style="font-size:14px">${esc(m.model || "?")}</div></div>
+    <div class="stat"><div class="k">status</div><div class="v" style="font-size:14px">${m.running ? '<span class="st-run">running ●</span>' : '<span class="st-ok">done</span>'}</div></div>
+    <div class="stat"><div class="k">duration</div><div class="v">${fmtDur(m.duration_ms)}</div></div>
+    <div class="stat"><div class="k">turns</div><div class="v">${m.turns}</div></div>
+    <div class="stat"><div class="k">tool calls</div><div class="v">${m.tool_calls}</div></div>
+    <div class="stat"><div class="k">tokens</div><div class="v" style="font-size:14px">${m.input_tokens} in / ${m.output_tokens} out</div></div>
+    <div class="stat"><div class="k">${m.has_fix != null ? "fixed" : "findings"}</div><div class="v" style="font-size:14px">${esc(fx)}</div></div>
+  </div>`);
+
+  for (const e of entries) {
+    if (e.type === "session_start") {
+      html.push(`<div class="marker"><span>session started · ${esc(fmtTime(e.ts))} · ${esc(m.provider || "")}</span></div>`);
+    } else if (e.type === "session_end") {
+      html.push(`<div class="marker"><span>session ended · ${esc(fmtTime(e.ts))}</span></div>`);
+    } else if (e.type === "message") {
+      if (e.role === "user") {
+        // Skip pure tool_result messages (merged into tool cards above).
+        const textBlocks = (e.blocks || []).filter(b => b.type === "text" && b.text.trim());
+        if (!textBlocks.length) continue;
+        const txt = textBlocks.map(b => b.text).join("\n");
+        html.push(`<div class="item"><div class="who">user · ${esc(fmtTime(e.ts))}</div>
+          <div class="bubble user">${renderLongText(txt)}</div></div>`);
+      } else if (e.role === "assistant") {
+        const parts = [];
+        for (const b of (e.blocks || [])) {
+          if (b.type === "thinking" && b.text.trim()) parts.push(`<div class="thinking">${esc(b.text)}</div>`);
+          else if (b.type === "text" && b.text.trim()) parts.push(`<div class="bubble assistant">${esc(b.text)}</div>`);
+          else if (b.type === "tool_use") parts.push(renderTool(tools[b.tool_use_id] || { name: b.tool_name, input: b.input }));
+        }
+        if (parts.length) html.push(`<div class="item"><div class="who">assistant · ${esc(fmtTime(e.ts))}</div>${parts.join("")}</div>`);
+      }
+    } else if (e.type === "event") {
+      if (e.kind === "notice") html.push(`<div class="notice">⟳ ${esc(e.text)}</div>`);
+      else if (e.kind === "error") html.push(`<div class="errline">! ${esc(e.text)}</div>`);
+      // tool_start/tool_end/tool_denied/assistant/turn_start/done are folded into cards/stats.
+    }
+  }
+  $("#detail").innerHTML = html.join("");
+}
+
+function renderLongText(txt) {
+  if (txt.length <= 600) return esc(txt);
+  return `${esc(txt.slice(0, 600))}<details><summary>show full (${txt.length} chars)</summary>${esc(txt)}</details>`;
+}
+
+$("#refresh").onclick = () => { loadSessions(); loadDetail(); };
+setInterval(() => { if ($("#auto").checked) { loadSessions(); loadDetail(); } }, 2000);
+loadSessions();
+</script>
+</body>
+</html>

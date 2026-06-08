@@ -129,6 +129,7 @@ internal/
     context.go, prompts.go          system prompt + scope assembly (collects around the diff)
   review/  fix/  verify/        structured outputs + verification-command detection
   transcript/                   JSONL session persistence (the recovery boundary)
+  trace/                        transcript parser + embedded web UI (rfa trace)
 ```
 
 ### Design principles (from the reference doc)
@@ -156,6 +157,19 @@ Writers are *hidden from the model* in Review Mode (visibility filtering), and r
 `rfa` loads project rule files from the repo root down to the working directory, deeper files taking priority: `AGENTS.md`, `CLAUDE.md`, `RFA.md`, `.rfa/rules.md`. Use them to encode review conventions and project-specific constraints.
 
 ---
+
+## Trace viewer (debugging)
+
+Every run is written to a JSONL transcript under `.rfa/sessions/`, including runtime events (tool timing, token usage, permission denials, stop-hook nudges). `rfa trace` serves a zero-dependency web UI to observe those traces — live, while a run is in progress, or after the fact.
+
+```bash
+rfa trace                       # serve <cwd>/.rfa/sessions on http://127.0.0.1:7777
+rfa trace --dir path/.rfa/sessions --port 7777
+```
+
+The UI shows a session list (mode, model, turns, tool calls, tokens, running indicator) and, per session, a turn-by-turn timeline: user/assistant messages, each tool call folded into a card with its input, output, duration, and status, plus the final report. It auto-refreshes every 2s, so you can watch an agent work in real time. Open another terminal, start a `review`/`fix`, and refresh the trace page.
+
+API (if you want to build your own view): `GET /api/sessions`, `GET /api/sessions/{id}`.
 
 ## Model providers
 

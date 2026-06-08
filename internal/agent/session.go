@@ -114,7 +114,16 @@ func (s *Session) Run(ctx context.Context, emit func(Event)) (Result, error) {
 		Transcript: ts,
 	}
 
-	msgs, runErr := loop.Run(ctx, []message.Message{message.NewUserText(built.InitialUser)}, emit)
+	// Wrap emit so runtime events are also persisted to the transcript as a
+	// trace (tool timing, usage, denials, notices) for the `rfa trace` viewer.
+	traceEmit := func(e Event) {
+		recordTraceEvent(ts, e)
+		if emit != nil {
+			emit(e)
+		}
+	}
+
+	msgs, runErr := loop.Run(ctx, []message.Message{message.NewUserText(built.InitialUser)}, traceEmit)
 
 	res := Result{
 		Messages:       msgs,
@@ -124,6 +133,36 @@ func (s *Session) Run(ctx context.Context, emit func(Event)) (Result, error) {
 	}
 	ts.Append("session_end", map[string]any{"has_findings": sink.HasFindings(), "has_fix": sink.HasFix()})
 	return res, runErr
+}
+
+// recordTraceEvent persists a runtime event to the transcript as a trace entry.
+// Streaming deltas are skipped (the full assistant text lives in the message
+// entry); assistant turns record only usage to avoid duplicating text.
+func recordTraceEvent(ts *transcript.Store, e Event) {
+	switch e.Kind {
+	case EvText, EvThinking:
+		return // skip high-frequency deltas
+	}
+	payload := map[string]any{"kind": string(e.Kind)}
+	if e.ToolName != "" {
+		payload["tool"] = e.ToolName
+	}
+	if e.ToolUseID != "" {
+		payload["tool_use_id"] = e.ToolUseID
+	}
+	if e.ToolInput != nil {
+		payload["input"] = e.ToolInput
+	}
+	if e.IsError {
+		payload["is_error"] = true
+	}
+	if e.Kind != EvAssistant && e.Text != "" {
+		payload["text"] = e.Text
+	}
+	if e.Usage.InputTokens != 0 || e.Usage.OutputTokens != 0 {
+		payload["usage"] = e.Usage
+	}
+	ts.Append("event", payload)
 }
 
 // assembleTools returns the tool set for a mode. Built-ins are passed to the

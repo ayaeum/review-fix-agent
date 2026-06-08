@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,6 +29,7 @@ import (
 	"github.com/review-fix-agent/rfa/internal/model"
 	"github.com/review-fix-agent/rfa/internal/permission"
 	"github.com/review-fix-agent/rfa/internal/review"
+	"github.com/review-fix-agent/rfa/internal/trace"
 )
 
 func main() {
@@ -42,6 +44,9 @@ func main() {
 		mode = permission.ModeReview
 	case "fix":
 		mode = permission.ModeFix
+	case "trace":
+		runTrace(os.Args[2:])
+		return
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -89,7 +94,7 @@ func main() {
 		scope.Focus = task
 	}
 
-	client, err := buildClient(*provider, *modelID)
+	client, activeModel, err := buildClient(*provider, *modelID)
 	if err != nil {
 		fatal(err)
 	}
@@ -100,7 +105,7 @@ func main() {
 	sess := agent.NewSession(client, agent.SessionConfig{
 		Cwd:         cwd,
 		Mode:        mode,
-		Model:       *modelID,
+		Model:       activeModel,
 		MaxTokens:   *maxTokens,
 		MaxTurns:    *maxTurns,
 		AutoApprove: *yes,
@@ -123,6 +128,28 @@ func main() {
 	os.Exit(exitCode(mode, result, runErr))
 }
 
+// runTrace starts the trace web UI server over a sessions directory.
+func runTrace(args []string) {
+	fs := flag.NewFlagSet("trace", flag.ExitOnError)
+	dir := fs.String("dir", "", "sessions directory (default <cwd>/.rfa/sessions)")
+	port := fs.Int("port", 7777, "HTTP port")
+	host := fs.String("host", "127.0.0.1", "bind address")
+	_ = fs.Parse(args)
+
+	d := *dir
+	if d == "" {
+		cwd, _ := os.Getwd()
+		d = filepath.Join(cwd, ".rfa", "sessions")
+	}
+	if abs, err := filepath.Abs(d); err == nil {
+		d = abs
+	}
+	srv := trace.NewServer(d)
+	if err := srv.Serve(fmt.Sprintf("%s:%d", *host, *port)); err != nil {
+		fatal(err)
+	}
+}
+
 // Default OpenAI provider settings (OpenAI is the default provider).
 const (
 	defaultOpenAIBaseURL = "https://ai-gw.mjclouds.com"
@@ -130,15 +157,17 @@ const (
 )
 
 // buildClient selects the model provider from flags/environment.
-func buildClient(provider, modelID string) (model.Client, error) {
+// buildClient returns the provider client and the resolved model id (so the
+// transcript/trace records the real model, not the empty CLI default).
+func buildClient(provider, modelID string) (model.Client, string, error) {
 	if os.Getenv("RFA_MOCK") == "1" {
-		return &model.Mock{}, nil
+		return &model.Mock{}, "mock", nil
 	}
 	switch strings.ToLower(provider) {
 	case "", "openai", "openai-responses": // OpenAI is the default provider
 		key := os.Getenv("OPENAI_API_KEY")
 		if key == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY is not set (or set RFA_MOCK=1 for an offline smoke test)")
+			return nil, "", fmt.Errorf("OPENAI_API_KEY is not set (or set RFA_MOCK=1 for an offline smoke test)")
 		}
 		base := envOr("OPENAI_BASE_URL", defaultOpenAIBaseURL)
 		m := modelID
@@ -147,7 +176,7 @@ func buildClient(provider, modelID string) (model.Client, error) {
 		}
 		// Only the Responses wire protocol is implemented (wire_api = "responses").
 		if w := os.Getenv("OPENAI_WIRE_API"); w != "" && strings.ToLower(w) != "responses" {
-			return nil, fmt.Errorf("OPENAI_WIRE_API=%q is not supported; only \"responses\" is implemented", w)
+			return nil, "", fmt.Errorf("OPENAI_WIRE_API=%q is not supported; only \"responses\" is implemented", w)
 		}
 		c := model.NewOpenAIResponses(key, base, m)
 		c.ReasoningEffort = os.Getenv("OPENAI_REASONING_EFFORT")
@@ -156,15 +185,16 @@ func buildClient(provider, modelID string) (model.Client, error) {
 				c.MaxOutputTokens = v
 			}
 		}
-		return c, nil
+		return c, c.Model, nil
 	case "anthropic":
 		key := os.Getenv("ANTHROPIC_API_KEY")
 		if key == "" {
-			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set (or set RFA_MOCK=1 for an offline smoke test)")
+			return nil, "", fmt.Errorf("ANTHROPIC_API_KEY is not set (or set RFA_MOCK=1 for an offline smoke test)")
 		}
-		return model.NewAnthropic(key, os.Getenv("ANTHROPIC_BASE_URL"), modelID), nil
+		c := model.NewAnthropic(key, os.Getenv("ANTHROPIC_BASE_URL"), modelID)
+		return c, c.Model, nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q (use: openai | anthropic)", provider)
+		return nil, "", fmt.Errorf("unknown provider %q (use: openai | anthropic)", provider)
 	}
 }
 
@@ -310,6 +340,7 @@ func usage() {
 Usage:
   rfa review [flags] [focus text...]    Read-only, evidence-based code review
   rfa fix    [flags] <issue text...>    Minimal patch + verification for a known issue
+  rfa trace  [--dir d] [--port 7777]    Web UI to observe/debug session traces
 
 Flags:
   --base <ref>       Diff base ref (e.g. main). Default: uncommitted changes vs HEAD.
