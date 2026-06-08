@@ -131,3 +131,40 @@ func TestNewOpenAIResponsesBaseURL(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildBodyGatewayCompat locks in the three deviations the mjclouds gateway
+// requires: instructions is always present, input is always an array, and
+// max_output_tokens is omitted unless explicitly configured.
+func TestBuildBodyGatewayCompat(t *testing.T) {
+	o := NewOpenAIResponses("k", "https://gw", "gpt-5.5")
+
+	body := o.buildBody(Request{Messages: []message.Message{message.NewUserText("hi")}})
+	if s, ok := body["instructions"].(string); !ok || s == "" {
+		t.Error("instructions must always be present and non-empty (gateway requires it)")
+	}
+	if _, ok := body["input"].([]map[string]any); !ok {
+		t.Errorf("input must be an array, got %T", body["input"])
+	}
+	if _, ok := body["max_output_tokens"]; ok {
+		t.Error("max_output_tokens must be omitted by default (gateway rejects it)")
+	}
+	if body["model"] != "gpt-5.5" {
+		t.Errorf("model = %v, want gpt-5.5", body["model"])
+	}
+
+	o.MaxOutputTokens = 4096
+	body = o.buildBody(Request{
+		System:   "be precise",
+		Messages: []message.Message{message.NewUserText("hi")},
+		Tools:    []ToolSchema{{Name: "read_file", InputSchema: map[string]any{"type": "object"}}},
+	})
+	if body["instructions"] != "be precise" {
+		t.Errorf("instructions = %v, want 'be precise'", body["instructions"])
+	}
+	if body["max_output_tokens"] != 4096 {
+		t.Errorf("max_output_tokens = %v, want 4096 when configured", body["max_output_tokens"])
+	}
+	if _, ok := body["tools"]; !ok {
+		t.Error("tools should be present when provided")
+	}
+}

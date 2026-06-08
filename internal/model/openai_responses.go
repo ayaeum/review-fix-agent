@@ -25,6 +25,9 @@ type OpenAIResponses struct {
 	BaseURL         string // normalized to end at /v1
 	Model           string
 	ReasoningEffort string // optional: low | medium | high
+	// MaxOutputTokens, when > 0, is sent as max_output_tokens. Default 0 (omit):
+	// some Responses gateways reject the parameter, so it is opt-in.
+	MaxOutputTokens int
 	HTTPClient      *http.Client
 }
 
@@ -55,33 +58,7 @@ func (o *OpenAIResponses) Name() string { return "openai-responses" }
 // Stream sends the request and aggregates the Responses SSE stream into one
 // assistant message.
 func (o *OpenAIResponses) Stream(ctx context.Context, req Request, onEvent func(StreamEvent)) (message.Message, message.Usage, error) {
-	model := req.Model
-	if model == "" {
-		model = o.Model
-	}
-	body := map[string]any{
-		"model":  model,
-		"input":  toResponsesInput(req.Messages),
-		"stream": true,
-		"store":  false,
-	}
-	if req.System != "" {
-		body["instructions"] = req.System
-	}
-	if len(req.Tools) > 0 {
-		body["tools"] = toResponsesTools(req.Tools)
-	}
-	if req.MaxTokens > 0 {
-		body["max_output_tokens"] = req.MaxTokens
-	}
-	if req.Temperature > 0 {
-		body["temperature"] = req.Temperature
-	}
-	if o.ReasoningEffort != "" {
-		body["reasoning"] = map[string]any{"effort": o.ReasoningEffort}
-	}
-
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(o.buildBody(req))
 	if err != nil {
 		return message.Message{}, message.Usage{}, fmt.Errorf("marshal request: %w", err)
 	}
@@ -108,6 +85,42 @@ func (o *OpenAIResponses) Stream(ctx context.Context, req Request, onEvent func(
 	}
 
 	return aggregateResponsesSSE(resp.Body, onEvent)
+}
+
+// buildBody constructs the Responses API request payload. It is split out from
+// Stream so the wire shape can be unit-tested. Notes on gateway compatibility:
+//   - instructions is always sent (some gateways require it).
+//   - input is always an array (some gateways reject a bare string).
+//   - max_output_tokens is opt-in (some gateways reject the parameter).
+func (o *OpenAIResponses) buildBody(req Request) map[string]any {
+	model := req.Model
+	if model == "" {
+		model = o.Model
+	}
+	instructions := req.System
+	if strings.TrimSpace(instructions) == "" {
+		instructions = "You are a code review and code fix assistant."
+	}
+	body := map[string]any{
+		"model":        model,
+		"instructions": instructions,
+		"input":        toResponsesInput(req.Messages),
+		"stream":       true,
+		"store":        false,
+	}
+	if len(req.Tools) > 0 {
+		body["tools"] = toResponsesTools(req.Tools)
+	}
+	if o.MaxOutputTokens > 0 {
+		body["max_output_tokens"] = o.MaxOutputTokens
+	}
+	if req.Temperature > 0 {
+		body["temperature"] = req.Temperature
+	}
+	if o.ReasoningEffort != "" {
+		body["reasoning"] = map[string]any{"effort": o.ReasoningEffort}
+	}
+	return body
 }
 
 // aggregateResponsesSSE parses the Responses SSE stream into one assistant

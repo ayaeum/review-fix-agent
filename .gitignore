@@ -7,6 +7,11 @@
 *.out
 *.test
 
+# Local secrets / env (may contain tokens — never commit)
+.env
+.env.local
+env.openai.sh
+
 # Editor / OS
 .DS_Store
 .idea/

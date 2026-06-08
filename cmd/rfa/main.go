@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -54,7 +55,7 @@ func main() {
 	base := fs.String("base", "", "diff base ref (e.g. main); default shows uncommitted changes vs HEAD")
 	filesCSV := fs.String("files", "", "comma-separated focus files")
 	modelID := fs.String("model", envOr("RFA_MODEL", ""), "model id (default: provider default)")
-	provider := fs.String("provider", envOr("RFA_PROVIDER", ""), "model provider: anthropic | openai (default: anthropic)")
+	provider := fs.String("provider", envOr("RFA_PROVIDER", ""), "model provider: openai | anthropic (default: openai)")
 	maxTurns := fs.Int("max-turns", 40, "maximum agentic turns")
 	maxTokens := fs.Int("max-tokens", 8192, "max output tokens per model call")
 	jsonOut := fs.Bool("json", false, "print the structured report as JSON")
@@ -122,18 +123,27 @@ func main() {
 	os.Exit(exitCode(mode, result, runErr))
 }
 
+// Default OpenAI provider settings (OpenAI is the default provider).
+const (
+	defaultOpenAIBaseURL = "https://ai-gw.mjclouds.com"
+	defaultOpenAIModel   = "gpt-5.5"
+)
+
 // buildClient selects the model provider from flags/environment.
 func buildClient(provider, modelID string) (model.Client, error) {
 	if os.Getenv("RFA_MOCK") == "1" {
 		return &model.Mock{}, nil
 	}
 	switch strings.ToLower(provider) {
-	case "openai", "openai-responses":
+	case "", "openai", "openai-responses": // OpenAI is the default provider
 		key := os.Getenv("OPENAI_API_KEY")
-		base := os.Getenv("OPENAI_BASE_URL")
+		if key == "" {
+			return nil, fmt.Errorf("OPENAI_API_KEY is not set (or set RFA_MOCK=1 for an offline smoke test)")
+		}
+		base := envOr("OPENAI_BASE_URL", defaultOpenAIBaseURL)
 		m := modelID
 		if m == "" {
-			m = envOr("OPENAI_MODEL", "")
+			m = envOr("OPENAI_MODEL", defaultOpenAIModel)
 		}
 		// Only the Responses wire protocol is implemented (wire_api = "responses").
 		if w := os.Getenv("OPENAI_WIRE_API"); w != "" && strings.ToLower(w) != "responses" {
@@ -141,15 +151,20 @@ func buildClient(provider, modelID string) (model.Client, error) {
 		}
 		c := model.NewOpenAIResponses(key, base, m)
 		c.ReasoningEffort = os.Getenv("OPENAI_REASONING_EFFORT")
+		if n := os.Getenv("OPENAI_MAX_OUTPUT_TOKENS"); n != "" {
+			if v, err := strconv.Atoi(n); err == nil {
+				c.MaxOutputTokens = v
+			}
+		}
 		return c, nil
-	case "", "anthropic":
+	case "anthropic":
 		key := os.Getenv("ANTHROPIC_API_KEY")
 		if key == "" {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set (or set RFA_MOCK=1 for an offline smoke test)")
 		}
 		return model.NewAnthropic(key, os.Getenv("ANTHROPIC_BASE_URL"), modelID), nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q (use: anthropic | openai)", provider)
+		return nil, fmt.Errorf("unknown provider %q (use: openai | anthropic)", provider)
 	}
 }
 
@@ -299,7 +314,7 @@ Usage:
 Flags:
   --base <ref>       Diff base ref (e.g. main). Default: uncommitted changes vs HEAD.
   --files a,b,c      Comma-separated focus files.
-  --provider <p>     Model provider: anthropic | openai (default: anthropic, or $RFA_PROVIDER).
+  --provider <p>     Model provider: openai | anthropic (default: openai, or $RFA_PROVIDER).
   --model <id>       Model id (default: provider default or $RFA_MODEL).
   --max-turns <n>    Maximum agentic turns (default 40).
   --max-tokens <n>   Max output tokens per model call (default 8192).
@@ -308,30 +323,26 @@ Flags:
   --quiet            Suppress streaming; print only the final report.
 
 Environment:
-  RFA_PROVIDER       Default provider (anthropic | openai).
-  RFA_MODEL          Default model id.
+  RFA_PROVIDER       Override default provider (openai | anthropic).
+  RFA_MODEL          Override model id.
   RFA_MOCK=1         Use the offline mock model.
 
-  Anthropic provider:
+  OpenAI provider (default; Responses API, wire_api = "responses"):
+    OPENAI_API_KEY          API key / gateway token (required).
+    OPENAI_BASE_URL         Endpoint base (default https://ai-gw.mjclouds.com; /v1 auto-appended).
+    OPENAI_MODEL            Model id (default gpt-5.5).
+    OPENAI_REASONING_EFFORT Optional: low | medium | high.
+    OPENAI_MAX_OUTPUT_TOKENS Optional; omitted by default (some gateways reject it).
+
+  Anthropic provider (--provider anthropic):
     ANTHROPIC_API_KEY    API key.
     ANTHROPIC_BASE_URL   Override API endpoint.
 
-  OpenAI provider (Responses API, wire_api = "responses"):
-    OPENAI_API_KEY          API key / gateway token.
-    OPENAI_BASE_URL         Endpoint base, e.g. https://ai-gw.mjclouds.com (/v1 auto-appended).
-    OPENAI_MODEL            Model id, e.g. gpt-5.5.
-    OPENAI_REASONING_EFFORT Optional: low | medium | high.
-
 Examples:
+  # Default = OpenAI Responses gateway; just provide the token:
+  export OPENAI_API_KEY=...
   rfa review --base main
   rfa review --files internal/agent/loop.go "focus on the stop-hook logic"
   rfa fix --yes "config nil deref panics on startup when env is absent"
-
-  # OpenAI Responses gateway:
-  export RFA_PROVIDER=openai
-  export OPENAI_BASE_URL=https://ai-gw.mjclouds.com
-  export OPENAI_MODEL=gpt-5.5
-  export OPENAI_API_KEY=...
-  rfa review --base main
 `)
 }

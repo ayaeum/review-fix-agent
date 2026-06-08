@@ -15,16 +15,14 @@ It is built in **Go** with **zero runtime dependencies** (only the standard libr
 # build
 go build -o rfa ./cmd/rfa
 
-# configure the provider — Anthropic (default)
-export ANTHROPIC_API_KEY=sk-ant-...
-# optional: export ANTHROPIC_BASE_URL=...   export RFA_MODEL=claude-sonnet-4-6
+# configure the provider — OpenAI Responses API is the DEFAULT
+export OPENAI_API_KEY=...        # gateway token; that's all you need
+# defaults: base=https://ai-gw.mjclouds.com  model=gpt-5.5
+# override with OPENAI_BASE_URL / OPENAI_MODEL; optional OPENAI_REASONING_EFFORT=medium
 
-# …or OpenAI Responses API (wire_api = "responses"), incl. compatible gateways
-export RFA_PROVIDER=openai
-export OPENAI_BASE_URL=https://ai-gw.mjclouds.com    # /v1 is auto-appended
-export OPENAI_MODEL=gpt-5.5
-export OPENAI_API_KEY=...                             # gateway token
-# optional: export OPENAI_REASONING_EFFORT=medium
+# …or use Anthropic instead
+#   export RFA_PROVIDER=anthropic
+#   export ANTHROPIC_API_KEY=sk-ant-...
 
 # review the uncommitted changes in the current repo
 ./rfa review
@@ -165,16 +163,15 @@ Writers are *hidden from the model* in Review Mode (visibility filtering), and r
 
 | Provider | Wire protocol | Key env vars |
 | --- | --- | --- |
-| `anthropic` (default) | Messages API, streaming SSE | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` |
-| `openai` | **Responses API** (`/v1/responses`), `wire_api = "responses"` | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` |
+| `openai` **(default)** | **Responses API** (`/v1/responses`), `wire_api = "responses"` | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT`, `OPENAI_MAX_OUTPUT_TOKENS` |
+| `anthropic` | Messages API, streaming SSE | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` |
 
-The OpenAI adapter targets the Responses API specifically (not Chat Completions): tools are flat `function` items, the model emits text and `function_call` as separate output items, and tool results are fed back as `function_call_output` items keyed by `call_id`. `OPENAI_BASE_URL` may omit the `/v1` suffix — it is appended automatically, so a gateway like `https://ai-gw.mjclouds.com` works as-is. Each provider adapter only handles protocol differences; permissions, context, and the loop are provider-agnostic.
+OpenAI is the default provider, defaulting to `https://ai-gw.mjclouds.com` and `gpt-5.5` — so you only need to export `OPENAI_API_KEY`.
+
+The OpenAI adapter targets the Responses API specifically (not Chat Completions): tools are flat `function` items, the model emits text and `function_call` as separate output items, and tool results are fed back as `function_call_output` items keyed by `call_id`. `OPENAI_BASE_URL` may omit the `/v1` suffix — it is appended automatically. The adapter is tuned for gateways that deviate from the OpenAI spec: it always sends `instructions`, always sends `input` as an array, and omits `max_output_tokens` unless `OPENAI_MAX_OUTPUT_TOKENS` is set. Each provider adapter only handles protocol differences; permissions, context, and the loop are provider-agnostic.
 
 ```bash
-RFA_PROVIDER=openai \
-OPENAI_BASE_URL=https://ai-gw.mjclouds.com \
-OPENAI_MODEL=gpt-5.5 \
-OPENAI_API_KEY=... \
+export OPENAI_API_KEY=...     # base + model already default to the gateway / gpt-5.5
 rfa review --base main
 ```
 
