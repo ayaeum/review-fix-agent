@@ -7,6 +7,7 @@ package tool
 
 import (
 	"context"
+	"sort"
 	"sync"
 )
 
@@ -84,13 +85,23 @@ func (r *ReadState) Get(path string) (ReadRecord, bool) {
 // Sink captures finalizer payloads (the structured review/fix report). The loop
 // inspects it to decide whether the run may terminate.
 type Sink struct {
-	mu       sync.Mutex
-	Findings map[string]any // report_findings payload, if emitted
-	FixR     map[string]any // report_fix payload, if emitted
+	mu           sync.Mutex
+	Findings     map[string]any // report_findings payload, if emitted
+	FixR         map[string]any // report_fix payload, if emitted
+	Commands     []CommandRecord
+	changedFiles map[string]bool
 }
 
 // NewSink constructs an empty finalizer sink.
 func NewSink() *Sink { return &Sink{} }
+
+// CommandRecord captures a real run_command invocation so final reports can be
+// checked against what the agent actually executed.
+type CommandRecord struct {
+	Command string
+	Passed  bool
+	Summary string
+}
 
 // SetFindings stores the review finalizer payload.
 func (s *Sink) SetFindings(m map[string]any) {
@@ -104,6 +115,44 @@ func (s *Sink) SetFix(m map[string]any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.FixR = m
+}
+
+// RecordCommand stores the outcome of a run_command invocation.
+func (s *Sink) RecordCommand(r CommandRecord) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Commands = append(s.Commands, r)
+}
+
+// CommandRecords returns a copy of recorded command outcomes.
+func (s *Sink) CommandRecords() []CommandRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]CommandRecord, len(s.Commands))
+	copy(out, s.Commands)
+	return out
+}
+
+// RecordChangedFile stores a file successfully modified by a write-capable tool.
+func (s *Sink) RecordChangedFile(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.changedFiles == nil {
+		s.changedFiles = map[string]bool{}
+	}
+	s.changedFiles[path] = true
+}
+
+// ChangedFiles returns a sorted copy of files changed through agent write tools.
+func (s *Sink) ChangedFiles() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.changedFiles))
+	for p := range s.changedFiles {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // HasFindings reports whether a review report has been emitted.

@@ -76,8 +76,18 @@ func (BashTool) Call(ctx context.Context, input map[string]any, tc *tool.Context
 	var b strings.Builder
 	fmt.Fprintf(&b, "$ %s\n", cmd)
 	b.Write(out)
+	record := func(passed bool, summary string) {
+		if tc != nil && tc.Sink != nil {
+			tc.Sink.RecordCommand(tool.CommandRecord{
+				Command: cmd,
+				Passed:  passed,
+				Summary: summary,
+			})
+		}
+	}
 	if runCtx.Err() == context.DeadlineExceeded {
 		fmt.Fprintf(&b, "\n[command timed out after %ds]", timeout)
+		record(false, fmt.Sprintf("timed out after %ds", timeout))
 		return tool.Result{Text: truncate(b.String()), IsError: true}, nil
 	}
 	if err != nil {
@@ -85,8 +95,10 @@ func (BashTool) Call(ctx context.Context, input map[string]any, tc *tool.Context
 		if ee, ok := err.(*exec.ExitError); ok {
 			exitErr = ee
 			fmt.Fprintf(&b, "\n[exit code %d]", exitErr.ExitCode())
+			record(false, fmt.Sprintf("exit code %d", exitErr.ExitCode()))
 		} else {
 			fmt.Fprintf(&b, "\n[error: %v]", err)
+			record(false, err.Error())
 		}
 		// A non-zero exit is normal for failing tests; report as error so the
 		// model can distinguish pass/fail, but keep the output.
@@ -95,5 +107,6 @@ func (BashTool) Call(ctx context.Context, input map[string]any, tc *tool.Context
 	if len(out) == 0 {
 		b.WriteString("[no output; exit code 0]")
 	}
+	record(true, "exit code 0")
 	return tool.Result{Text: truncate(b.String())}, nil
 }

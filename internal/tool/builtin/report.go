@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/review-fix-agent/rfa/internal/tool"
 )
@@ -70,9 +71,33 @@ func (ReportFindingsTool) Validate(input map[string]any) error {
 				return fmt.Errorf("findings[%d] missing required field %q", i, k)
 			}
 		}
+		if !validSeverity(stringValue(fm["severity"])) {
+			return fmt.Errorf("findings[%d].severity must be one of high, medium, low, info", i)
+		}
+		line, ok := intValue(fm["line"])
+		if !ok || line < 1 {
+			return fmt.Errorf("findings[%d].line must be a positive integer", i)
+		}
+		for _, k := range []string{"file", "title", "evidence", "impact"} {
+			if strings.TrimSpace(stringValue(fm[k])) == "" {
+				return fmt.Errorf("findings[%d].%s must not be empty", i, k)
+			}
+		}
 	}
-	if _, ok := input["reviewed_scope"]; !ok {
+	scope, ok := input["reviewed_scope"]
+	if !ok {
 		return fmt.Errorf("missing required field \"reviewed_scope\"")
+	}
+	if err := validateStringArray("reviewed_scope", scope, true); err != nil {
+		return err
+	}
+	if raw, ok := input["not_reviewed"]; ok {
+		if err := validateStringArray("not_reviewed", raw, false); err != nil {
+			return err
+		}
+	}
+	if raw, ok := input["verification"]; ok && strings.TrimSpace(stringValue(raw)) == "" {
+		return fmt.Errorf("verification must not be empty when provided")
 	}
 	return nil
 }
@@ -132,18 +157,188 @@ func (ReportFixTool) Validate(input map[string]any) error {
 			return fmt.Errorf("missing required field %q", k)
 		}
 	}
-	if _, ok := input["changed_files"].([]any); !ok {
-		return fmt.Errorf("\"changed_files\" must be an array")
+	if strings.TrimSpace(stringValue(input["summary"])) == "" {
+		return fmt.Errorf("\"summary\" must not be empty")
 	}
-	if _, ok := input["verification"].([]any); !ok {
+	if raw, ok := input["patch_scope"]; ok && strings.TrimSpace(stringValue(raw)) == "" {
+		return fmt.Errorf("\"patch_scope\" must not be empty when provided")
+	}
+	if err := validateStringArray("changed_files", input["changed_files"], false); err != nil {
+		return err
+	}
+	arr, ok := input["verification"].([]any)
+	if !ok {
 		return fmt.Errorf("\"verification\" must be an array")
+	}
+	for i, v := range arr {
+		vm, ok := v.(map[string]any)
+		if !ok {
+			return fmt.Errorf("verification[%d] must be an object", i)
+		}
+		for _, k := range []string{"command", "passed", "summary"} {
+			if _, ok := vm[k]; !ok {
+				return fmt.Errorf("verification[%d] missing required field %q", i, k)
+			}
+		}
+		if strings.TrimSpace(stringValue(vm["command"])) == "" {
+			return fmt.Errorf("verification[%d].command must not be empty", i)
+		}
+		if _, ok := vm["passed"].(bool); !ok {
+			return fmt.Errorf("verification[%d].passed must be a boolean", i)
+		}
+		if strings.TrimSpace(stringValue(vm["summary"])) == "" {
+			return fmt.Errorf("verification[%d].summary must not be empty", i)
+		}
+	}
+	if hasFailedVerification(arr) && strings.TrimSpace(stringValue(input["residual_risk"])) == "" {
+		return fmt.Errorf("\"residual_risk\" must explain failed verification")
 	}
 	return nil
 }
 
 func (ReportFixTool) Call(_ context.Context, input map[string]any, tc *tool.Context) (tool.Result, error) {
+	if err := validateReportedVerification(input, tc); err != nil {
+		return tool.Result{}, err
+	}
+	if err := validateReportedChangedFiles(input, tc); err != nil {
+		return tool.Result{}, err
+	}
 	if tc.Sink != nil {
 		tc.Sink.SetFix(input)
 	}
 	return tool.Result{Text: "fix report recorded", Meta: input}, nil
+}
+
+func validSeverity(s string) bool {
+	switch s {
+	case "high", "medium", "low", "info":
+		return true
+	default:
+		return false
+	}
+}
+
+func stringValue(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func intValue(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case float64:
+		if n == float64(int(n)) {
+			return int(n), true
+		}
+	}
+	return 0, false
+}
+
+func validateStringArray(name string, raw any, requireNonEmpty bool) error {
+	arr, ok := raw.([]any)
+	if !ok {
+		return fmt.Errorf("\"%s\" must be an array", name)
+	}
+	if requireNonEmpty && len(arr) == 0 {
+		return fmt.Errorf("\"%s\" must not be empty", name)
+	}
+	for i, v := range arr {
+		if strings.TrimSpace(stringValue(v)) == "" {
+			return fmt.Errorf("%s[%d] must be a non-empty string", name, i)
+		}
+	}
+	return nil
+}
+
+func validateReportedVerification(input map[string]any, tc *tool.Context) error {
+	raw, ok := input["verification"].([]any)
+	if !ok || len(raw) == 0 || tc == nil || tc.Sink == nil {
+		return nil
+	}
+	records := tc.Sink.CommandRecords()
+	byCommand := map[string]tool.CommandRecord{}
+	for _, r := range records {
+		byCommand[normalizeCommand(r.Command)] = r
+	}
+	for i, v := range raw {
+		vm, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		cmd := stringValue(vm["command"])
+		rec, ok := byCommand[normalizeCommand(cmd)]
+		if !ok {
+			return fmt.Errorf("verification[%d].command %q was not executed through run_command", i, cmd)
+		}
+		if passed, _ := vm["passed"].(bool); passed != rec.Passed {
+			return fmt.Errorf("verification[%d].passed for %q does not match actual run_command result", i, cmd)
+		}
+	}
+	return nil
+}
+
+func normalizeCommand(cmd string) string {
+	return strings.Join(strings.Fields(cmd), " ")
+}
+
+func validateReportedChangedFiles(input map[string]any, tc *tool.Context) error {
+	raw, ok := input["changed_files"].([]any)
+	if !ok || tc == nil || tc.Sink == nil {
+		return nil
+	}
+	actual := tc.Sink.ChangedFiles()
+	if len(actual) == 0 {
+		return nil
+	}
+	if len(inputArray(input["verification"])) == 0 && strings.TrimSpace(stringValue(input["residual_risk"])) == "" {
+		return fmt.Errorf("\"residual_risk\" must explain why changed files were not verified")
+	}
+	reported := map[string]bool{}
+	for _, v := range raw {
+		reported[cleanReportPath(stringValue(v))] = true
+	}
+	for _, p := range actual {
+		if !reported[cleanReportPath(p)] {
+			return fmt.Errorf("changed_files is missing file changed by agent: %s", p)
+		}
+	}
+	actualSet := map[string]bool{}
+	for _, p := range actual {
+		actualSet[cleanReportPath(p)] = true
+	}
+	for _, v := range raw {
+		p := cleanReportPath(stringValue(v))
+		if !actualSet[p] {
+			return fmt.Errorf("changed_files contains file not changed through agent write tools: %s", stringValue(v))
+		}
+	}
+	return nil
+}
+
+func cleanReportPath(path string) string {
+	return strings.Trim(strings.TrimSpace(path), "`")
+}
+
+func inputArray(v any) []any {
+	arr, _ := v.([]any)
+	return arr
+}
+
+func hasFailedVerification(arr []any) bool {
+	for _, v := range arr {
+		vm, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		passed, _ := vm["passed"].(bool)
+		if !passed {
+			return true
+		}
+	}
+	return false
 }

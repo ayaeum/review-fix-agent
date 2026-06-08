@@ -64,8 +64,12 @@ func (WriteTool) Call(_ context.Context, input map[string]any, tc *tool.Context)
 		return tool.Result{Text: fmt.Sprintf("write failed: %v", err), IsError: true}, nil
 	}
 	tc.ReadState.Record(abs, tool.ReadRecord{Content: content, ModUnix: modUnix(abs)})
+	changedFile := relTo(tc.Cwd, abs)
+	if tc.Sink != nil {
+		tc.Sink.RecordChangedFile(changedFile)
+	}
 	return tool.Result{
-		Text: fmt.Sprintf("wrote %s (%d bytes)", relTo(tc.Cwd, abs), len(content)),
-		Meta: map[string]any{"changed_file": relTo(tc.Cwd, abs)},
+		Text: fmt.Sprintf("wrote %s (%d bytes)", changedFile, len(content)),
+		Meta: map[string]any{"changed_file": changedFile},
 	}, nil
 }

@@ -97,13 +97,17 @@ func (EditTool) Call(_ context.Context, input map[string]any, tc *tool.Context) 
 		return tool.Result{Text: fmt.Sprintf("write failed: %v", err), IsError: true}, nil
 	}
 	tc.ReadState.Record(abs, tool.ReadRecord{Content: updated, ModUnix: modUnix(abs)})
+	changedFile := relTo(tc.Cwd, abs)
+	if tc.Sink != nil {
+		tc.Sink.RecordChangedFile(changedFile)
+	}
 
 	replaced := 1
 	if replaceAll {
 		replaced = n
 	}
 	return tool.Result{
-		Text: fmt.Sprintf("edited %s (%d replacement(s))", relTo(tc.Cwd, abs), replaced),
-		Meta: map[string]any{"changed_file": relTo(tc.Cwd, abs)},
+		Text: fmt.Sprintf("edited %s (%d replacement(s))", changedFile, replaced),
+		Meta: map[string]any{"changed_file": changedFile},
 	}, nil
 }
