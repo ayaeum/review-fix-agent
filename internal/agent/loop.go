@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/review-fix-agent/rfa/internal/message"
@@ -36,6 +37,10 @@ type Loop struct {
 // maxFinalizerReminders bounds how many times the stop hook nudges the model to
 // emit its structured report before the loop gives up (prevents runaways).
 const maxFinalizerReminders = 3
+
+// ErrMissingFinalizer is returned when the loop stops without the required
+// structured report being recorded in the sink.
+var ErrMissingFinalizer = errors.New("agent finished without submitting the required report")
 
 // Run drives the loop to completion and returns the full message history.
 func (l *Loop) Run(ctx context.Context, initial []message.Message, emit func(Event)) ([]message.Message, error) {
@@ -96,6 +101,9 @@ func (l *Loop) Run(ctx context.Context, initial []message.Message, emit func(Eve
 				l.Transcript.Append("message", hidden)
 				continue
 			}
+			if !l.hasRequiredFinalizer() {
+				return state, ErrMissingFinalizer
+			}
 			emitEvent(emit, Event{Kind: EvDone})
 			return state, nil
 		}
@@ -106,8 +114,25 @@ func (l *Loop) Run(ctx context.Context, initial []message.Message, emit func(Eve
 	}
 
 	emitEvent(emit, Event{Kind: EvNotice, Text: fmt.Sprintf("reached max turns (%d); stopping", maxTurns)})
+	if !l.hasRequiredFinalizer() {
+		return state, ErrMissingFinalizer
+	}
 	emitEvent(emit, Event{Kind: EvDone})
 	return state, nil
+}
+
+func (l *Loop) hasRequiredFinalizer() bool {
+	if l.ToolCtx == nil || l.ToolCtx.Sink == nil {
+		return false
+	}
+	switch l.Cfg.Mode {
+	case permission.ModeReview:
+		return l.ToolCtx.Sink.HasFindings()
+	case permission.ModeFix:
+		return l.ToolCtx.Sink.HasFix()
+	default:
+		return true
+	}
 }
 
 // stopHook implements the doc's StopHook: if the required structured report has

@@ -123,6 +123,23 @@ func TestReviewStopHookNudge(t *testing.T) {
 	}
 }
 
+// TestReviewMissingFinalizerReturnsError verifies that exhausting the finalizer
+// reminders without report_findings is surfaced as a run error.
+func TestReviewMissingFinalizerReturnsError(t *testing.T) {
+	client := &model.Mock{Responder: func(_ model.Request, _ int) message.Message {
+		return message.NewAssistantText("Looks fine to me.")
+	}}
+
+	sess := newReviewSession(t, client)
+	res, err := sess.Run(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected missing finalizer error")
+	}
+	if res.Findings != nil {
+		t.Fatal("expected no findings report to be recorded")
+	}
+}
+
 // TestReviewModeBlocksWrites confirms a write attempt in review mode is denied
 // and still produces a paired (error) tool_result.
 func TestReviewModeBlocksWrites(t *testing.T) {
