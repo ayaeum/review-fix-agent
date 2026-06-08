@@ -54,6 +54,7 @@ func main() {
 	base := fs.String("base", "", "diff base ref (e.g. main); default shows uncommitted changes vs HEAD")
 	filesCSV := fs.String("files", "", "comma-separated focus files")
 	modelID := fs.String("model", envOr("RFA_MODEL", ""), "model id (default: provider default)")
+	provider := fs.String("provider", envOr("RFA_PROVIDER", ""), "model provider: anthropic | openai (default: anthropic)")
 	maxTurns := fs.Int("max-turns", 40, "maximum agentic turns")
 	maxTokens := fs.Int("max-tokens", 8192, "max output tokens per model call")
 	jsonOut := fs.Bool("json", false, "print the structured report as JSON")
@@ -87,7 +88,7 @@ func main() {
 		scope.Focus = task
 	}
 
-	client, err := buildClient(*modelID)
+	client, err := buildClient(*provider, *modelID)
 	if err != nil {
 		fatal(err)
 	}
@@ -121,16 +122,35 @@ func main() {
 	os.Exit(exitCode(mode, result, runErr))
 }
 
-// buildClient selects the model provider from the environment.
-func buildClient(modelID string) (model.Client, error) {
+// buildClient selects the model provider from flags/environment.
+func buildClient(provider, modelID string) (model.Client, error) {
 	if os.Getenv("RFA_MOCK") == "1" {
 		return &model.Mock{}, nil
 	}
-	key := os.Getenv("ANTHROPIC_API_KEY")
-	if key == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set (or set RFA_MOCK=1 for an offline smoke test)")
+	switch strings.ToLower(provider) {
+	case "openai", "openai-responses":
+		key := os.Getenv("OPENAI_API_KEY")
+		base := os.Getenv("OPENAI_BASE_URL")
+		m := modelID
+		if m == "" {
+			m = envOr("OPENAI_MODEL", "")
+		}
+		// Only the Responses wire protocol is implemented (wire_api = "responses").
+		if w := os.Getenv("OPENAI_WIRE_API"); w != "" && strings.ToLower(w) != "responses" {
+			return nil, fmt.Errorf("OPENAI_WIRE_API=%q is not supported; only \"responses\" is implemented", w)
+		}
+		c := model.NewOpenAIResponses(key, base, m)
+		c.ReasoningEffort = os.Getenv("OPENAI_REASONING_EFFORT")
+		return c, nil
+	case "", "anthropic":
+		key := os.Getenv("ANTHROPIC_API_KEY")
+		if key == "" {
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set (or set RFA_MOCK=1 for an offline smoke test)")
+		}
+		return model.NewAnthropic(key, os.Getenv("ANTHROPIC_BASE_URL"), modelID), nil
+	default:
+		return nil, fmt.Errorf("unknown provider %q (use: anthropic | openai)", provider)
 	}
-	return model.NewAnthropic(key, os.Getenv("ANTHROPIC_BASE_URL"), modelID), nil
 }
 
 // makeEmitter returns an event handler that streams progress to the terminal.
@@ -279,6 +299,7 @@ Usage:
 Flags:
   --base <ref>       Diff base ref (e.g. main). Default: uncommitted changes vs HEAD.
   --files a,b,c      Comma-separated focus files.
+  --provider <p>     Model provider: anthropic | openai (default: anthropic, or $RFA_PROVIDER).
   --model <id>       Model id (default: provider default or $RFA_MODEL).
   --max-turns <n>    Maximum agentic turns (default 40).
   --max-tokens <n>   Max output tokens per model call (default 8192).
@@ -287,14 +308,30 @@ Flags:
   --quiet            Suppress streaming; print only the final report.
 
 Environment:
-  ANTHROPIC_API_KEY  API key (required unless RFA_MOCK=1).
-  ANTHROPIC_BASE_URL Override API endpoint.
+  RFA_PROVIDER       Default provider (anthropic | openai).
   RFA_MODEL          Default model id.
   RFA_MOCK=1         Use the offline mock model.
+
+  Anthropic provider:
+    ANTHROPIC_API_KEY    API key.
+    ANTHROPIC_BASE_URL   Override API endpoint.
+
+  OpenAI provider (Responses API, wire_api = "responses"):
+    OPENAI_API_KEY          API key / gateway token.
+    OPENAI_BASE_URL         Endpoint base, e.g. https://ai-gw.mjclouds.com (/v1 auto-appended).
+    OPENAI_MODEL            Model id, e.g. gpt-5.5.
+    OPENAI_REASONING_EFFORT Optional: low | medium | high.
 
 Examples:
   rfa review --base main
   rfa review --files internal/agent/loop.go "focus on the stop-hook logic"
   rfa fix --yes "config nil deref panics on startup when env is absent"
+
+  # OpenAI Responses gateway:
+  export RFA_PROVIDER=openai
+  export OPENAI_BASE_URL=https://ai-gw.mjclouds.com
+  export OPENAI_MODEL=gpt-5.5
+  export OPENAI_API_KEY=...
+  rfa review --base main
 `)
 }

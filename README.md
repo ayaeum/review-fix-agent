@@ -15,9 +15,16 @@ It is built in **Go** with **zero runtime dependencies** (only the standard libr
 # build
 go build -o rfa ./cmd/rfa
 
-# configure the provider
+# configure the provider — Anthropic (default)
 export ANTHROPIC_API_KEY=sk-ant-...
 # optional: export ANTHROPIC_BASE_URL=...   export RFA_MODEL=claude-sonnet-4-6
+
+# …or OpenAI Responses API (wire_api = "responses"), incl. compatible gateways
+export RFA_PROVIDER=openai
+export OPENAI_BASE_URL=https://ai-gw.mjclouds.com    # /v1 is auto-appended
+export OPENAI_MODEL=gpt-5.5
+export OPENAI_API_KEY=...                             # gateway token
+# optional: export OPENAI_REASONING_EFFORT=medium
 
 # review the uncommitted changes in the current repo
 ./rfa review
@@ -109,6 +116,7 @@ internal/
   model/                        ModelClient
     client.go                       provider-agnostic interface
     anthropic.go                    Anthropic Messages API, streaming SSE aggregation
+    openai_responses.go             OpenAI Responses API (wire_api = "responses")
     mock.go                         deterministic offline client for tests / smoke runs
   tool/                         the unified Tool abstraction
     tool.go, registry.go            interface, read-state cache, finalizer sink, registry
@@ -150,6 +158,25 @@ Writers are *hidden from the model* in Review Mode (visibility filtering), and r
 `rfa` loads project rule files from the repo root down to the working directory, deeper files taking priority: `AGENTS.md`, `CLAUDE.md`, `RFA.md`, `.rfa/rules.md`. Use them to encode review conventions and project-specific constraints.
 
 ---
+
+## Model providers
+
+`rfa` speaks to providers through one `ModelClient` interface (`internal/model`). Select with `--provider` or `RFA_PROVIDER`.
+
+| Provider | Wire protocol | Key env vars |
+| --- | --- | --- |
+| `anthropic` (default) | Messages API, streaming SSE | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` |
+| `openai` | **Responses API** (`/v1/responses`), `wire_api = "responses"` | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_REASONING_EFFORT` |
+
+The OpenAI adapter targets the Responses API specifically (not Chat Completions): tools are flat `function` items, the model emits text and `function_call` as separate output items, and tool results are fed back as `function_call_output` items keyed by `call_id`. `OPENAI_BASE_URL` may omit the `/v1` suffix — it is appended automatically, so a gateway like `https://ai-gw.mjclouds.com` works as-is. Each provider adapter only handles protocol differences; permissions, context, and the loop are provider-agnostic.
+
+```bash
+RFA_PROVIDER=openai \
+OPENAI_BASE_URL=https://ai-gw.mjclouds.com \
+OPENAI_MODEL=gpt-5.5 \
+OPENAI_API_KEY=... \
+rfa review --base main
+```
 
 ## Development
 
