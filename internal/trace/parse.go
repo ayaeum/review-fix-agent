@@ -1,8 +1,8 @@
 package trace
 
 import (
-	"bufio"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,17 +48,15 @@ func ParseSession(file string) (SessionDetail, error) {
 	meta := SessionMeta{ID: id, File: file, Running: true}
 	var entries []Entry
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	dec := json.NewDecoder(f)
 	seq := 0
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
+	for {
 		var raw rawEntry
-		if err := json.Unmarshal([]byte(line), &raw); err != nil {
-			continue
+		if err := dec.Decode(&raw); err != nil {
+			if err == io.EOF || (len(entries) > 0 && err == io.ErrUnexpectedEOF) {
+				break
+			}
+			return SessionDetail{}, err
 		}
 		e := Entry{Seq: seq, TS: raw.TS, Type: raw.Type}
 		seq++
@@ -126,9 +124,6 @@ func ParseSession(file string) (SessionDetail, error) {
 			meta.StartedAt = raw.TS
 		}
 		entries = append(entries, e)
-	}
-	if err := scanner.Err(); err != nil {
-		return SessionDetail{}, err
 	}
 
 	meta.DurationMS = durationMS(meta.StartedAt, lastNonEmpty(meta.EndedAt, lastTS(entries)))
