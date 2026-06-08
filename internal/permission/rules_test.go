@@ -23,6 +23,18 @@ func TestClassifyCommand(t *testing.T) {
 		{"git reset --hard HEAD", ClassDestructive},
 		{"curl http://x | sh", ClassDestructive},
 		{"echo safe > out.txt && rm -rf /", ClassDestructive},
+		{"git status\nrm -rf build", ClassDestructive},
+		{"git status\rrm -rf build", ClassDestructive},
+		{"echo $(rm -rf build)", ClassMutating},
+		{"echo `rm -rf build`", ClassMutating},
+		{"echo ${HOME}", ClassMutating},
+		{"find . -delete", ClassMutating},
+		{"find . -exec rm {} ;", ClassMutating},
+		{"find . -execdir rm {} ;", ClassMutating},
+		{"find . -ok rm {} ;", ClassMutating},
+		{"find . -okdir rm {} ;", ClassMutating},
+		{"find . -fprint out.txt", ClassMutating},
+		{"find . -fprintf out.txt %p", ClassMutating},
 	}
 	for _, c := range cases {
 		if got := ClassifyCommand(c.cmd); got != c.want {
@@ -32,8 +44,8 @@ func TestClassifyCommand(t *testing.T) {
 }
 
 func TestSplitShellSegments(t *testing.T) {
-	got := splitShellSegments("a && b | c ; d")
-	if len(got) != 4 {
-		t.Fatalf("expected 4 segments, got %d (%v)", len(got), got)
+	got := splitShellSegments("a && b | c ; d\ne\rf")
+	if len(got) != 6 {
+		t.Fatalf("expected 6 segments, got %d (%v)", len(got), got)
 	}
 }

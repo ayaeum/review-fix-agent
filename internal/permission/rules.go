@@ -80,6 +80,9 @@ func ClassifyCommand(cmd string) CommandClass {
 	if hasDestructivePattern(strings.Join(normalized, " && ")) {
 		return ClassDestructive
 	}
+	if hasShellExpansion(c) {
+		return ClassMutating
+	}
 	if fileRedirect.MatchString(c) {
 		return ClassMutating
 	}
@@ -115,6 +118,10 @@ func hasDestructivePattern(cmd string) bool {
 		}
 	}
 	return false
+}
+
+func hasShellExpansion(cmd string) bool {
+	return strings.Contains(cmd, "$(") || strings.Contains(cmd, "`") || strings.Contains(cmd, "${")
 }
 
 func normalizeCommandSegment(seg string) string {
@@ -155,6 +162,20 @@ func hasReadOnlyPrefix(seg string) bool {
 	low := strings.ToLower(seg)
 	for _, p := range readOnlyPrefixes {
 		if low == p || strings.HasPrefix(low, p+" ") {
+			if p == "find" && mutatingFindCommand(low) {
+				return false
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func mutatingFindCommand(seg string) bool {
+	fields := strings.Fields(seg)
+	for _, f := range fields[1:] {
+		switch f {
+		case "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprintf":
 			return true
 		}
 	}
@@ -170,9 +191,12 @@ func splitShellSegments(cmd string) []string {
 	for i := 0; i < len(runes); i++ {
 		r := runes[i]
 		switch r {
-		case ';':
+		case ';', '\n', '\r':
 			segs = append(segs, cur.String())
 			cur.Reset()
+			if r == '\r' && i+1 < len(runes) && runes[i+1] == '\n' {
+				i++
+			}
 		case '|', '&':
 			// collapse "||" and "&&" into one split
 			if i+1 < len(runes) && runes[i+1] == r {
