@@ -63,6 +63,8 @@ func (l *Loop) Run(ctx context.Context, initial []message.Message, emit func(Eve
 		default:
 		}
 
+		state = l.maybeCompress(ctx, state, emit)
+
 		emitEvent(emit, Event{Kind: EvTurnStart})
 
 		req := model.Request{
