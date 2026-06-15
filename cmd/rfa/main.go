@@ -67,6 +67,7 @@ func main() {
 	jsonOut := fs.Bool("json", false, "print the structured report as JSON")
 	yes := fs.Bool("yes", false, "auto-approve mutating commands (fix mode)")
 	quiet := fs.Bool("quiet", false, "suppress streaming output; print only the final report")
+	parallel := fs.Bool("parallel", false, "per-file parallel review (review mode, large changesets)")
 	_ = fs.Parse(os.Args[2:])
 
 	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -113,6 +114,46 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Parallel per-file review: fan-out single-call reviews then merge.
+	if *parallel && mode == permission.ModeReview {
+		cm := contextmgr.NewManager(cwd)
+		built, err := cm.Build(ctx, scope)
+		if err != nil {
+			fatal(err)
+		}
+		if review.ShouldParallelReview(built.Changed) {
+			if !*quiet {
+				fmt.Fprintf(os.Stderr, "  \033[2m→ parallel review: %d files\033[0m\n", len(built.Changed))
+			}
+			diffByFile := review.BuildDiffByFile(built.Changed, built.Diff)
+			r := review.ParallelReview(ctx, review.ParallelConfig{
+				Client:      client,
+				ModelID:     activeModel,
+				MaxTokens:   *maxTokens,
+				Concurrency: 4,
+			}, built.Changed, diffByFile, scope.Focus)
+
+			if built.Diff != "" && !*quiet {
+				fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
+				r = review.FilterFindings(ctx, client, activeModel, r, built.Diff)
+			}
+			r.Findings = review.ResolveLineNumbers(r.Findings, built.Changed)
+			r = r.Filtered()
+			if *jsonOut {
+				fmt.Println(r.JSON())
+			} else {
+				fmt.Println(r.Markdown())
+			}
+			if r.Counts()["high"] > 0 {
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+		if !*quiet {
+			fmt.Fprintf(os.Stderr, "  \033[2m→ changeset too small for parallel; falling back to standard review\033[0m\n")
+		}
+	}
 
 	sess := agent.NewSession(client, agent.SessionConfig{
 		Cwd:         cwd,
@@ -391,6 +432,7 @@ Flags:
   --json             Print the structured report as JSON.
   --yes              Auto-approve mutating commands (fix mode).
   --quiet            Suppress streaming; print only the final report.
+  --parallel         Per-file parallel review for large changesets (review mode).
 
 Environment:
   RFA_PROVIDER       Override default provider (openai | anthropic).

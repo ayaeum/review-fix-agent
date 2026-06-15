@@ -28,6 +28,7 @@ type Context struct {
 	Mode      string // "review" | "fix"
 	ReadState *ReadState
 	Sink      *Sink
+	DiffData  map[string]string // per-file diff snippets keyed by path
 	// Progress, if set, receives human-readable progress lines.
 	Progress func(string)
 }

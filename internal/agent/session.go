@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/review-fix-agent/rfa/internal/contextmgr"
@@ -92,11 +93,13 @@ func (s *Session) Run(ctx context.Context, emit func(Event)) (Result, error) {
 
 	// 5. Tool execution context.
 	sink := tool.NewSink()
+	diffByFile := buildDiffByFile(built.Changed, built.Diff)
 	tc := &tool.Context{
 		Cwd:       cfg.Cwd,
 		Mode:      string(cfg.Mode),
 		ReadState: tool.NewReadState(),
 		Sink:      sink,
+		DiffData:  diffByFile,
 	}
 
 	// 6. Run the loop.
@@ -194,6 +197,86 @@ func assembleTools(mode permission.Mode) []tool.Tool {
 			builtin.ReportFixTool{},
 		)
 	default: // review
-		return append(common, builtin.ReportFindingsTool{})
+		return append(common,
+			builtin.GetFileDiffTool{},
+			builtin.ReportFindingsTool{},
+		)
 	}
+}
+
+func buildDiffByFile(changed []contextmgr.ChangedFile, fullDiff string) map[string]string {
+	chunks := splitDiffByFileChunks(fullDiff)
+	byFile := make(map[string]string, len(chunks))
+	for _, chunk := range chunks {
+		path := extractChunkPath(chunk)
+		if path != "" {
+			byFile[path] = chunk
+		}
+	}
+	return byFile
+}
+
+func splitDiffByFileChunks(diff string) []string {
+	var files []string
+	start := 0
+	lines := diff
+	for {
+		idx := indexAfter(lines, start, "diff --git ")
+		if idx < 0 {
+			break
+		}
+		if idx > start {
+			files = append(files, diff[start:idx])
+		}
+		start = idx
+		next := indexAfter(lines, start+1, "diff --git ")
+		if next < 0 {
+			files = append(files, diff[start:])
+			return files
+		}
+		files = append(files, diff[start:next])
+		start = next
+	}
+	if start == 0 && len(diff) > 0 {
+		files = append(files, diff)
+	}
+	return files
+}
+
+func indexAfter(s string, from int, prefix string) int {
+	if from >= len(s) {
+		return -1
+	}
+	sub := s[from:]
+	for i := 0; i < len(sub); {
+		nl := strings.IndexByte(sub[i:], '\n')
+		line := sub[i:]
+		if nl >= 0 {
+			line = sub[i : i+nl]
+		}
+		if strings.HasPrefix(line, prefix) {
+			return from + i
+		}
+		if nl < 0 {
+			break
+		}
+		i += nl + 1
+	}
+	return -1
+}
+
+func extractChunkPath(chunk string) string {
+	for _, line := range strings.Split(chunk, "\n") {
+		if strings.HasPrefix(line, "+++ ") {
+			p := strings.TrimPrefix(line, "+++ ")
+			p = strings.TrimSpace(p)
+			if strings.HasPrefix(p, "b/") {
+				return p[2:]
+			}
+			if p != "/dev/null" {
+				return p
+			}
+		}
+	}
+	return ""
 }
