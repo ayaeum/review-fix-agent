@@ -110,6 +110,8 @@ curl -s "http://127.0.0.1:$PORT/api/sessions/$SID" >"$TMPLOG/detail.json" 2>/dev
 grep -q '"tool_use"' "$TMPLOG/detail.json" && ok "GET /api/sessions/{id} has tool calls" || bad "trace detail tool calls"
 grep -q '"kind":"tool_start"' "$TMPLOG/detail.json" && ok "detail includes tool timing events" || bad "trace timing events"
 curl -s "http://127.0.0.1:$PORT/" 2>/dev/null | grep -qi '<!doctype html>' && ok "GET / serves the web UI" || bad "trace UI"
+curl -s "http://127.0.0.1:$PORT/flow.html" 2>/dev/null | grep -qi 'rfa flow' && ok "GET /flow.html serves the flow visualization" || bad "flow UI"
+curl -s -m 2 "http://127.0.0.1:$PORT/api/sessions/$SID/stream" 2>/dev/null | grep -q '"type"' && ok "GET /api/sessions/{id}/stream returns SSE data" || bad "SSE stream"
 kill "$SRV" 2>/dev/null
 wait "$SRV" 2>/dev/null || true
 rm -rf "$F"

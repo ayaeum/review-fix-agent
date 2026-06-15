@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rfa flow — 执行流可视化</title>
+<style>
+:root {
+  --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --border: #30363d;
+  --fg: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --red: #f85149; --yellow: #d29922; --purple: #bc8cff;
+  --cyan: #39d2c0; --orange: #f0883e;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--fg);
+  font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+
+/* Header */
+.header { display: flex; align-items: center; gap: 16px; padding: 12px 20px;
+  background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
+.header h1 { font-size: 16px; font-weight: 700; }
+.header h1 .dim { color: var(--muted); font-weight: 400; }
+.header .spacer { flex: 1; }
+.header select, .header button { background: var(--panel2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.header select:hover, .header button:hover { border-color: var(--accent); }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.4s infinite; }
+.status-dot.done { background: var(--muted); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* Pipeline */
+.pipeline { display: flex; align-items: center; gap: 0; padding: 20px; overflow-x: auto;
+  background: var(--panel); border-bottom: 1px solid var(--border); }
+.stage { display: flex; flex-direction: column; align-items: center; padding: 12px 24px; min-width: 120px;
+  border: 2px solid var(--border); border-radius: 10px; background: var(--panel2); position: relative; transition: all .3s; }
+.stage.active { border-color: var(--accent); box-shadow: 0 0 12px rgba(88,166,255,.2); }
+.stage.done { border-color: var(--green); }
+.stage.error { border-color: var(--red); }
+.stage .label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.stage .count { font-size: 20px; font-weight: 700; margin-top: 4px; }
+.stage .sub { font-size: 11px; color: var(--muted); }
+.arrow { color: var(--muted); font-size: 20px; margin: 0 4px; flex-shrink: 0; }
+.arrow.active { color: var(--accent); }
+
+/* Main layout */
+.main { display: grid; grid-template-columns: 1fr 340px; height: calc(100vh - 130px); }
+.main.no-sidebar { grid-template-columns: 1fr; }
+.flow-panel { overflow-y: auto; padding: 16px 20px 80px; }
+.side-panel { border-left: 1px solid var(--border); overflow-y: auto; background: var(--panel); padding: 16px; }
+
+/* Stats bar */
+.stats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.stat { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; min-width: 90px; }
+.stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+.stat .v { font-size: 18px; font-weight: 600; margin-top: 2px; }
+
+/* Turn card */
+.turn { border: 1px solid var(--border); border-radius: 10px; margin: 12px 0; overflow: hidden;
+  background: var(--panel); transition: border-color .3s; }
+.turn.active { border-color: var(--accent); }
+.turn-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer;
+  background: var(--panel2); border-bottom: 1px solid var(--border); user-select: none; }
+.turn-header:hover { background: #222a36; }
+.turn-num { font-family: var(--mono); font-weight: 700; font-size: 13px; color: var(--accent);
+  background: rgba(88,166,255,.1); padding: 2px 8px; border-radius: 4px; }
+.turn-meta { color: var(--muted); font-size: 12px; display: flex; gap: 12px; flex: 1; }
+.turn-chevron { color: var(--muted); transition: transform .2s; font-size: 14px; }
+.turn.open .turn-chevron { transform: rotate(90deg); }
+.turn-body { padding: 12px 14px; display: none; }
+.turn.open .turn-body { display: block; }
+
+/* Thinking block */
+.thinking-block { border-left: 3px solid var(--purple); background: rgba(188,140,255,.06);
+  padding: 10px 14px; margin: 8px 0; border-radius: 0 6px 6px 0; }
+.thinking-label { font-size: 11px; color: var(--purple); font-weight: 600; text-transform: uppercase;
+  letter-spacing: .5px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.thinking-text { font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+  white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; line-height: 1.5; }
+.thinking-cursor { display: inline-block; width: 7px; height: 14px; background: var(--purple);
+  animation: blink 1s infinite; vertical-align: text-bottom; margin-left: 2px; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* Assistant text */
+.assistant-text { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; margin: 8px 0; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+
+/* Tool call */
+.tool-call { border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; overflow: hidden; }
+.tool-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--panel2); cursor: pointer; user-select: none; }
+.tool-head:hover { background: #222a36; }
+.tool-icon { width: 20px; text-align: center; font-size: 14px; }
+.tool-icon.ok { color: var(--green); }
+.tool-icon.err { color: var(--red); }
+.tool-icon.run { color: var(--yellow); animation: pulse 1s infinite; }
+.tool-icon.denied { color: var(--red); }
+.tool-name { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.tool-arg { color: var(--muted); font-family: var(--mono); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.tool-dur { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+.tool-chevron { color: var(--muted); font-size: 12px; transition: transform .2s; }
+.tool-call.open .tool-chevron { transform: rotate(90deg); }
+.tool-body { display: none; padding: 0 12px 10px; }
+.tool-call.open .tool-body { display: block; }
+.tool-section { font-size: 11px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .4px; margin: 10px 0 4px; }
+pre { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  margin: 0 0 6px; max-height: 400px; overflow-y: auto; line-height: 1.5; }
+
+/* Waterfall chart */
+.waterfall { margin: 8px 0; }
+.wf-bar-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 12px; }
+.wf-label { width: 100px; text-align: right; font-family: var(--mono); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+.wf-track { flex: 1; height: 18px; background: var(--panel2); border-radius: 3px; position: relative; overflow: hidden; }
+.wf-fill { height: 100%; border-radius: 3px; position: absolute; min-width: 2px; }
+.wf-fill.read { background: var(--cyan); }
+.wf-fill.write { background: var(--orange); }
+.wf-fill.shell { background: var(--yellow); }
+.wf-fill.report { background: var(--green); }
+.wf-fill.error { background: var(--red); }
+.wf-dur { width: 60px; font-family: var(--mono); color: var(--muted); font-size: 11px; flex-shrink: 0; }
+
+/* Token chart */
+.token-chart { margin: 8px 0; }
+.tc-bar { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.tc-label { width: 36px; font-size: 11px; color: var(--muted); text-align: right; font-family: var(--mono); }
+.tc-track { flex: 1; height: 16px; display: flex; border-radius: 3px; overflow: hidden; background: var(--panel2); }
+.tc-in { background: var(--accent); height: 100%; }
+.tc-out { background: var(--purple); height: 100%; }
+.tc-num { font-size: 11px; color: var(--muted); font-family: var(--mono); width: 80px; }
+
+/* Notices & errors */
+.notice { border-left: 3px solid var(--yellow); background: rgba(210,153,34,.08);
+  color: var(--yellow); padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-size: 13px; }
+.error-line { border-left: 3px solid var(--red); background: rgba(248,81,73,.08);
+  color: var(--red); padding: 8px 12px; border-radius: 4px; margin: 8px 0; font-size: 13px; }
+
+/* Session marker */
+.marker { text-align: center; color: var(--muted); font-size: 12px; margin: 16px 0; position: relative; }
+.marker span { background: var(--bg); padding: 0 12px; position: relative; z-index: 1; }
+.marker:before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--border); }
+
+.empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 14px; }
+
+/* Side panel sections */
+.side-section { margin-bottom: 20px; }
+.side-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+
+/* User message */
+.user-msg { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; margin: 8px 0; white-space: pre-wrap; word-break: break-word;
+  max-height: 200px; overflow-y: auto; font-size: 13px; }
+.msg-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>rfa <span class="dim">flow</span></h1>
+  <select id="sessionSelect"><option value="">-- 选择会话 --</option></select>
+  <span id="statusIndicator"></span>
+  <div class="spacer"></div>
+  <button id="toggleSidebar">隐藏侧栏</button>
+  <a href="/" style="font-size:13px">← trace</a>
+</div>
+
+<div class="pipeline" id="pipeline"></div>
+
+<div class="main" id="mainLayout">
+  <div class="flow-panel" id="flowPanel">
+    <div class="empty" id="emptyHint">从顶部选择一个会话开始查看执行流程</div>
+  </div>
+  <div class="side-panel" id="sidePanel">
+    <div class="side-section">
+      <div class="side-title">概览</div>
+      <div class="stats" id="sideStats"></div>
+    </div>
+    <div class="side-section">
+      <div class="side-title">工具调用瀑布图</div>
+      <div id="waterfallChart"></div>
+    </div>
+    <div class="side-section">
+      <div class="side-title">Token 消耗 (按 Turn)</div>
+      <div id="tokenChart"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+const $$ = (s, el=document) => el.querySelectorAll(s);
+const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let state = {
+  sessions: [], currentId: null, entries: [], meta: null,
+  evtSource: null, isLive: false, sidebarVisible: true,
+  turns: [], tools: {}, tokensByTurn: [], openTurns: new Set(), openTools: new Set()
+};
+
+// ── Data fetching ──
+
+async function loadSessions() {
+  try {
+    const r = await fetch('/api/sessions');
+    state.sessions = await r.json();
+    renderSessionSelect();
+  } catch(e) { console.error(e); }
+}
+
+function renderSessionSelect() {
+  const sel = $('#sessionSelect');
+  const val = sel.value;
+  sel.innerHTML = '<option value="">-- 选择会话 --</option>' +
+    state.sessions.map(s => {
+      const dot = s.running ? '●' : '✓';
+      return `<option value="${esc(s.id)}" ${s.id===state.currentId?'selected':''}>${dot} ${esc(s.id)} (${s.turns}T/${s.tool_calls}C)</option>`;
+    }).join('');
+}
+
+function selectSession(id) {
+  if (state.evtSource) { state.evtSource.close(); state.evtSource = null; }
+  state.currentId = id;
+  state.entries = [];
+  state.turns = [];
+  state.tools = {};
+  state.tokensByTurn = [];
+  state.isLive = false;
+  state.meta = null;
+
+  if (!id) {
+    $('#flowPanel').innerHTML = '<div class="empty">从顶部选择一个会话开始查看执行流程</div>';
+    renderPipeline();
+    renderSidebar();
+    return;
+  }
+
+  const sess = state.sessions.find(s => s.id === id);
+  if (sess && sess.running) {
+    startSSE(id);
+  } else {
+    loadFullSession(id);
+  }
+}
+
+async function loadFullSession(id) {
+  try {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
+    const d = await r.json();
+    state.meta = d.meta;
+    state.entries = [];
+    state.isLive = false;
+    d.entries.forEach(e => processEntry(e));
+    renderAll();
+  } catch(e) { console.error(e); }
+}
+
+function startSSE(id) {
+  state.isLive = true;
+  state.meta = state.sessions.find(s => s.id === id) || {};
+  renderStatus();
+
+  const src = new EventSource(`/api/sessions/${encodeURIComponent(id)}/stream`);
+  state.evtSource = src;
+
+  src.onmessage = (ev) => {
+    try {
+      const raw = JSON.parse(ev.data);
+      const entry = { ts: raw.ts, type: raw.type, seq: state.entries.length };
+      // Parse payload inline
+      if (raw.payload) {
+        if (raw.type === 'message') {
+          entry.role = raw.payload.role;
+          entry.blocks = raw.payload.content;
+        } else if (raw.type === 'event') {
+          Object.assign(entry, raw.payload);
+        } else if (raw.type === 'session_start') {
+          state.meta = { ...state.meta, mode: raw.payload.mode, model: raw.payload.model, provider: raw.payload.provider, started_at: raw.ts };
+        } else if (raw.type === 'session_end') {
+          state.meta = { ...state.meta, ended_at: raw.ts, running: false };
+          state.isLive = false;
+        }
+        entry.extra = raw.payload;
+      }
+      processEntry(entry);
+      renderAll();
+      autoScrollFlow();
+    } catch(e) { console.error('SSE parse error', e); }
+  };
+
+  src.addEventListener('done', () => {
+    state.isLive = false;
+    src.close();
+    state.evtSource = null;
+    renderStatus();
+  });
+
+  src.onerror = () => {
+    if (state.isLive) {
+      state.isLive = false;
+      src.close();
+      state.evtSource = null;
+      renderStatus();
+    }
+  };
+
+  renderAll();
+}
+
+// ── Entry processing ──
+
+function processEntry(e) {
+  state.entries.push(e);
+
+  if (e.type === 'event') {
+    if (e.kind === 'turn_start') {
+      state.turns.push({ num: state.turns.length + 1, ts: e.ts, thinking: '', text: '', toolCalls: [], notices: [], errors: [], usage: null, done: false });
+    }
+    if (e.kind === 'assistant' && state.turns.length > 0) {
+      const t = curTurn();
+      if (e.usage) t.usage = e.usage;
+      if (e.duration_ms) t.llmDurationMS = e.duration_ms;
+      t.done = true;
+      state.tokensByTurn.push({ turn: t.num, input: e.usage?.input_tokens||0, output: e.usage?.output_tokens||0 });
+    }
+    if (e.kind === 'tool_start') {
+      const info = { id: e.tool_use_id, name: e.tool, input: e.input, startTS: e.ts, status: 'running' };
+      state.tools[e.tool_use_id] = info;
+      if (state.turns.length > 0) curTurn().toolCalls.push(e.tool_use_id);
+    }
+    if (e.kind === 'tool_end') {
+      const t = state.tools[e.tool_use_id];
+      if (t) { t.endTS = e.ts; t.result = e.text; t.isError = e.is_error; t.status = e.is_error ? 'error' : 'ok'; t.durationMS = e.duration_ms || tsDiff(t.startTS, e.ts); }
+    }
+    if (e.kind === 'tool_denied') {
+      const t = state.tools[e.tool_use_id] || { id: e.tool_use_id, name: e.tool, input: e.input };
+      t.status = 'denied'; t.denied = e.text;
+      state.tools[e.tool_use_id] = t;
+      if (state.turns.length > 0) { const ct = curTurn(); if (!ct.toolCalls.includes(e.tool_use_id)) ct.toolCalls.push(e.tool_use_id); }
+    }
+    if (e.kind === 'notice' && state.turns.length > 0) curTurn().notices.push(e.text);
+    if (e.kind === 'error' && state.turns.length > 0) curTurn().errors.push(e.text);
+  }
+
+  if (e.type === 'message' && e.role === 'assistant' && e.blocks) {
+    const turn = curTurn();
+    if (!turn) return;
+    for (const b of e.blocks) {
+      if (b.type === 'thinking' && b.text) turn.thinking += b.text;
+      if (b.type === 'text' && b.text) turn.text += b.text;
+      if (b.type === 'tool_use') {
+        const existing = state.tools[b.tool_use_id];
+        if (existing) { existing.name = existing.name || b.tool_name; existing.input = existing.input || b.input; }
+        else { state.tools[b.tool_use_id] = { id: b.tool_use_id, name: b.tool_name, input: b.input, status: 'pending' }; }
+        if (!turn.toolCalls.includes(b.tool_use_id)) turn.toolCalls.push(b.tool_use_id);
+      }
+    }
+  }
+
+  if (e.type === 'message' && e.role === 'user' && e.blocks) {
+    for (const b of e.blocks) {
+      if (b.type === 'tool_result') {
+        const t = state.tools[b.tool_use_id];
+        if (t && !t.result) { t.result = b.result_text; t.isError = b.is_error; if (t.status === 'pending' || t.status === 'running') t.status = b.is_error ? 'error' : 'ok'; }
+      }
+    }
+  }
+}
+
+function curTurn() { return state.turns.length > 0 ? state.turns[state.turns.length - 1] : null; }
+function tsDiff(a, b) { if (!a || !b) return 0; return new Date(b) - new Date(a); }
+
+// ── Rendering ──
+
+function renderAll() {
+  renderPipeline();
+  renderFlow();
+  renderSidebar();
+  renderStatus();
+}
+
+function renderStatus() {
+  const el = $('#statusIndicator');
+  if (state.isLive) {
+    el.innerHTML = '<span class="status-dot live"></span><span style="color:var(--green);font-size:13px">实时</span>';
+  } else if (state.currentId) {
+    el.innerHTML = '<span class="status-dot done"></span><span style="color:var(--muted);font-size:13px">已完成</span>';
+  } else {
+    el.innerHTML = '';
+  }
+}
+
+function renderPipeline() {
+  const el = $('#pipeline');
+  const turns = state.turns.length;
+  const toolCount = Object.keys(state.tools).length;
+  const hasReport = state.meta && (state.meta.has_findings != null || state.meta.has_fix != null);
+  const isLive = state.isLive;
+  const lastTurn = curTurn();
+  const lastTurnHasTools = lastTurn && lastTurn.toolCalls.length > 0 && lastTurn.toolCalls.some(id => state.tools[id]?.status === 'running');
+
+  const stages = [
+    { label: '上下文构建', count: state.entries.filter(e=>e.type==='session_start').length ? '✓' : '—',
+      sub: state.meta?.model || '', active: false, done: state.entries.some(e=>e.type==='session_start') },
+    { label: 'Agent 循环', count: turns, sub: `${turns} 轮`,
+      active: isLive && !lastTurnHasTools, done: !isLive && turns > 0 },
+    { label: '工具执行', count: toolCount, sub: `${toolCount} 次调用`,
+      active: isLive && lastTurnHasTools, done: !isLive && toolCount > 0 },
+    { label: '最终报告', count: hasReport ? '✓' : '—',
+      sub: state.meta?.mode === 'fix' ? 'fix' : 'review',
+      active: false, done: hasReport },
+  ];
+
+  el.innerHTML = stages.map((s, i) => {
+    const cls = s.active ? 'active' : (s.done ? 'done' : '');
+    const arrow = i < stages.length - 1 ? `<span class="arrow ${s.done || s.active ? 'active' : ''}">→</span>` : '';
+    return `<div class="stage ${cls}"><div class="label">${esc(s.label)}</div><div class="count">${esc(String(s.count))}</div><div class="sub">${esc(s.sub)}</div></div>${arrow}`;
+  }).join('');
+}
+
+function renderFlow() {
+  const fp = $('#flowPanel');
+  if (state.turns.length === 0 && !state.currentId) {
+    fp.innerHTML = '<div class="empty">从顶部选择一个会话开始查看执行流程</div>';
+    return;
+  }
+  if (state.turns.length === 0) {
+    fp.innerHTML = '<div class="empty">等待数据...</div>';
+    return;
+  }
+
+  // Render initial user message if present
+  let html = '';
+  const firstUserMsg = state.entries.find(e => e.type === 'message' && e.role === 'user' && e.blocks?.some(b => b.type === 'text'));
+  if (firstUserMsg) {
+    const textBlocks = firstUserMsg.blocks.filter(b => b.type === 'text');
+    const txt = textBlocks.map(b => b.text).join('\n');
+    const short = txt.length > 300 ? txt.slice(0, 300) + '…' : txt;
+    html += `<div class="msg-label">📋 初始上下文 · ${esc(fmtTime(firstUserMsg.ts))}</div>
+      <div class="user-msg">${esc(short)}</div>`;
+  }
+
+  // Render turns
+  for (const turn of state.turns) {
+    const isOpen = state.openTurns.has(turn.num) || (state.isLive && turn === curTurn());
+    const tokIn = turn.usage?.input_tokens || 0;
+    const tokOut = turn.usage?.output_tokens || 0;
+    const toolNames = turn.toolCalls.map(id => state.tools[id]?.name || '?').join(', ');
+
+    html += `<div class="turn ${isOpen ? 'open' : ''} ${state.isLive && turn === curTurn() ? 'active' : ''}" data-turn="${turn.num}">
+      <div class="turn-header" onclick="toggleTurn(${turn.num})">
+        <span class="turn-num">T${turn.num}</span>
+        <span class="turn-meta">
+          <span>${turn.toolCalls.length} 工具</span>
+          ${toolNames ? `<span style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(toolNames)}</span>` : ''}
+          ${tokIn ? `<span>${fmtTokens(tokIn)}→${fmtTokens(tokOut)}</span>` : ''}
+        </span>
+        <span class="turn-chevron">▶</span>
+      </div>
+      <div class="turn-body">`;
+
+    // Thinking
+    if (turn.thinking) {
+      const isStreaming = state.isLive && turn === curTurn() && !turn.done;
+      html += `<div class="thinking-block">
+        <div class="thinking-label">🧠 思维链${isStreaming ? ' <span style="font-weight:400;font-size:10px">(实时)</span>' : ''}</div>
+        <div class="thinking-text">${esc(turn.thinking)}${isStreaming ? '<span class="thinking-cursor"></span>' : ''}</div>
+      </div>`;
+    }
+
+    // Assistant text
+    if (turn.text) {
+      html += `<div class="assistant-text">${esc(turn.text)}</div>`;
+    }
+
+    // Tool calls
+    for (const toolId of turn.toolCalls) {
+      const t = state.tools[toolId];
+      if (!t) continue;
+      html += renderToolCall(t);
+    }
+
+    // Notices
+    for (const n of turn.notices) {
+      html += `<div class="notice">⟳ ${esc(n)}</div>`;
+    }
+    for (const e of turn.errors) {
+      html += `<div class="error-line">✗ ${esc(e)}</div>`;
+    }
+
+    html += `</div></div>`;
+  }
+
+  // Session end marker
+  if (state.meta && !state.isLive && state.meta.ended_at) {
+    html += `<div class="marker"><span>会话结束 · ${esc(fmtTime(state.meta.ended_at))}</span></div>`;
+  }
+
+  fp.innerHTML = html;
+}
+
+function renderToolCall(t) {
+  const isOpen = state.openTools.has(t.id);
+  const iconMap = { ok: '✓', error: '✗', running: '●', denied: '⊘', pending: '○' };
+  const icon = iconMap[t.status] || '○';
+  const iconCls = t.status || 'pending';
+  const dur = t.durationMS ? fmtDur(t.durationMS) : (t.startTS && t.endTS ? fmtDur(tsDiff(t.startTS, t.endTS)) : '');
+  const argPreview = oneLine(t.input);
+
+  let body = '';
+  body += `<div class="tool-section">输入</div><pre>${esc(prettyJSON(t.input || {}))}</pre>`;
+  if (t.denied) body += `<div class="tool-section">拒绝原因</div><pre style="color:var(--red)">${esc(t.denied)}</pre>`;
+  if (t.result != null) {
+    const resultText = t.result.length > 5000 ? t.result.slice(0, 5000) + '\n[... 截断 ...]' : t.result;
+    body += `<div class="tool-section">输出 ${t.isError ? '<span style="color:var(--red)">(错误)</span>' : ''}</div><pre>${esc(resultText)}</pre>`;
+  }
+
+  return `<div class="tool-call ${isOpen ? 'open' : ''}" data-tool-id="${esc(t.id)}">
+    <div class="tool-head" onclick="toggleTool('${esc(t.id)}')">
+      <span class="tool-icon ${iconCls}">${icon}</span>
+      <span class="tool-name">${esc(t.name || 'unknown')}</span>
+      <span class="tool-arg">${esc(argPreview)}</span>
+      ${dur ? `<span class="tool-dur">${dur}</span>` : ''}
+      <span class="tool-chevron">▶</span>
+    </div>
+    <div class="tool-body">${body}</div>
+  </div>`;
+}
+
+function renderSidebar() {
+  // Stats
+  const totalIn = state.tokensByTurn.reduce((s,t) => s + t.input, 0);
+  const totalOut = state.tokensByTurn.reduce((s,t) => s + t.output, 0);
+  const toolCount = Object.keys(state.tools).length;
+  const errors = Object.values(state.tools).filter(t => t.status === 'error').length;
+  const totalDur = state.meta?.duration_ms || (state.entries.length > 1 ? tsDiff(state.entries[0].ts, state.entries[state.entries.length-1].ts) : 0);
+
+  $('#sideStats').innerHTML = `
+    <div class="stat"><div class="k">轮次</div><div class="v">${state.turns.length}</div></div>
+    <div class="stat"><div class="k">工具调用</div><div class="v">${toolCount}</div></div>
+    <div class="stat"><div class="k">错误</div><div class="v" style="color:${errors?'var(--red)':'var(--fg)'}">${errors}</div></div>
+    <div class="stat"><div class="k">耗时</div><div class="v" style="font-size:14px">${fmtDur(totalDur)}</div></div>
+    <div class="stat"><div class="k">输入 Tok</div><div class="v" style="font-size:14px">${fmtTokens(totalIn)}</div></div>
+    <div class="stat"><div class="k">输出 Tok</div><div class="v" style="font-size:14px">${fmtTokens(totalOut)}</div></div>`;
+
+  // Waterfall
+  renderWaterfall();
+  // Token chart
+  renderTokenChart();
+}
+
+function renderWaterfall() {
+  const el = $('#waterfallChart');
+  const toolList = Object.values(state.tools).filter(t => t.startTS);
+  if (!toolList.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">暂无工具调用数据</div>'; return; }
+
+  const sessionStart = toolList.reduce((min, t) => t.startTS < min ? t.startTS : min, toolList[0].startTS);
+  const sessionEnd = toolList.reduce((max, t) => {
+    const end = t.endTS || t.startTS;
+    return end > max ? end : max;
+  }, sessionStart);
+  const totalMS = Math.max(tsDiff(sessionStart, sessionEnd), 1);
+
+  el.innerHTML = toolList.map(t => {
+    const startOff = tsDiff(sessionStart, t.startTS);
+    const dur = t.durationMS || tsDiff(t.startTS, t.endTS || t.startTS) || 50;
+    const left = (startOff / totalMS * 100).toFixed(1);
+    const width = Math.max((dur / totalMS * 100), 0.5).toFixed(1);
+    const cls = toolColorClass(t.name, t.isError);
+    return `<div class="wf-bar-row">
+      <span class="wf-label" title="${esc(t.name)}">${esc(t.name)}</span>
+      <div class="wf-track"><div class="wf-fill ${cls}" style="left:${left}%;width:${width}%"></div></div>
+      <span class="wf-dur">${fmtDur(dur)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderTokenChart() {
+  const el = $('#tokenChart');
+  if (!state.tokensByTurn.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">暂无 Token 数据</div>'; return; }
+
+  const maxTok = state.tokensByTurn.reduce((m, t) => Math.max(m, t.input + t.output), 0) || 1;
+  el.innerHTML = state.tokensByTurn.map(t => {
+    const inW = (t.input / maxTok * 100).toFixed(1);
+    const outW = (t.output / maxTok * 100).toFixed(1);
+    return `<div class="tc-bar">
+      <span class="tc-label">T${t.turn}</span>
+      <div class="tc-track"><div class="tc-in" style="width:${inW}%"></div><div class="tc-out" style="width:${outW}%"></div></div>
+      <span class="tc-num">${fmtTokens(t.input)}/${fmtTokens(t.output)}</span>
+    </div>`;
+  }).join('') + '<div style="font-size:11px;color:var(--muted);margin-top:4px"><span style="color:var(--accent)">■</span> 输入 <span style="color:var(--purple)">■</span> 输出</div>';
+}
+
+// ── Interactions ──
+
+function toggleTurn(num) {
+  if (state.openTurns.has(num)) state.openTurns.delete(num);
+  else state.openTurns.add(num);
+  renderFlow();
+}
+
+function toggleTool(id) {
+  if (state.openTools.has(id)) state.openTools.delete(id);
+  else state.openTools.add(id);
+  renderFlow();
+}
+
+function autoScrollFlow() {
+  const fp = $('#flowPanel');
+  const atBottom = fp.scrollHeight - fp.scrollTop - fp.clientHeight < 80;
+  if (atBottom || state.isLive) fp.scrollTop = fp.scrollHeight;
+}
+
+$('#toggleSidebar').onclick = () => {
+  state.sidebarVisible = !state.sidebarVisible;
+  $('#mainLayout').classList.toggle('no-sidebar', !state.sidebarVisible);
+  $('#sidePanel').style.display = state.sidebarVisible ? '' : 'none';
+  $('#toggleSidebar').textContent = state.sidebarVisible ? '隐藏侧栏' : '显示侧栏';
+};
+
+$('#sessionSelect').onchange = (e) => selectSession(e.target.value);
+
+// ── Helpers ──
+
+function fmtTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return isNaN(d) ? ts : d.toLocaleTimeString();
+}
+function fmtDur(ms) {
+  if (!ms || ms <= 0) return '—';
+  if (ms < 1000) return ms + 'ms';
+  if (ms < 60000) return (ms/1000).toFixed(1) + 's';
+  return (ms/60000).toFixed(1) + 'min';
+}
+function fmtTokens(n) {
+  if (!n) return '0';
+  if (n < 1000) return String(n);
+  return (n/1000).toFixed(1) + 'k';
+}
+function prettyJSON(v) { try { return JSON.stringify(v, null, 2); } catch { return String(v); } }
+function oneLine(v) {
+  if (v == null) return '';
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  return s.length > 60 ? s.slice(0, 60) + '…' : s;
+}
+function toolColorClass(name, isError) {
+  if (isError) return 'error';
+  if (/read|grep|glob|get_file_diff/.test(name)) return 'read';
+  if (/edit|write/.test(name)) return 'write';
+  if (/bash|run_command|command/.test(name)) return 'shell';
+  if (/report/.test(name)) return 'report';
+  return 'read';
+}
+
+// ── Init ──
+loadSessions();
+setInterval(() => { if (state.isLive) return; loadSessions(); }, 5000);
+</script>
+</body>
+</html>

@@ -90,17 +90,19 @@ func ParseSession(file string) (SessionDetail, error) {
 			}
 		case "event":
 			var p struct {
-				Kind      string         `json:"kind"`
-				Tool      string         `json:"tool"`
-				ToolUseID string         `json:"tool_use_id"`
-				Input     map[string]any `json:"input"`
-				Text      string         `json:"text"`
-				IsError   bool           `json:"is_error"`
-				Usage     *Usage         `json:"usage"`
+				Kind       string         `json:"kind"`
+				Tool       string         `json:"tool"`
+				ToolUseID  string         `json:"tool_use_id"`
+				Input      map[string]any `json:"input"`
+				Text       string         `json:"text"`
+				IsError    bool           `json:"is_error"`
+				Usage      *Usage         `json:"usage"`
+				DurationMS int64          `json:"duration_ms"`
 			}
 			_ = json.Unmarshal(raw.Payload, &p)
 			e.Kind, e.Tool, e.ToolUseID = p.Kind, p.Tool, p.ToolUseID
 			e.Input, e.Text, e.IsError, e.Usage = p.Input, p.Text, p.IsError, p.Usage
+			e.DurationMS = p.DurationMS
 			if p.Usage != nil {
 				meta.InputTokens += p.Usage.InputTokens
 				meta.OutputTokens += p.Usage.OutputTokens

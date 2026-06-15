@@ -32,13 +32,14 @@ type Entry struct {
 	Blocks []Block `json:"blocks,omitempty"`
 
 	// event
-	Kind      string         `json:"kind,omitempty"`
-	Tool      string         `json:"tool,omitempty"`
-	ToolUseID string         `json:"tool_use_id,omitempty"`
-	Input     map[string]any `json:"input,omitempty"`
-	Text      string         `json:"text,omitempty"`
-	IsError   bool           `json:"is_error,omitempty"`
-	Usage     *Usage         `json:"usage,omitempty"`
+	Kind       string         `json:"kind,omitempty"`
+	Tool       string         `json:"tool,omitempty"`
+	ToolUseID  string         `json:"tool_use_id,omitempty"`
+	Input      map[string]any `json:"input,omitempty"`
+	Text       string         `json:"text,omitempty"`
+	IsError    bool           `json:"is_error,omitempty"`
+	Usage      *Usage         `json:"usage,omitempty"`
+	DurationMS int64          `json:"duration_ms,omitempty"`
 
 	// session_start / session_end / misc
 	Extra map[string]any `json:"extra,omitempty"`
