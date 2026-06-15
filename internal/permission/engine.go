@@ -155,7 +155,13 @@ func (e *Engine) withinCwd(path string) bool {
 		abs = filepath.Join(e.Cwd, path)
 	}
 	abs = filepath.Clean(abs)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
 	root := filepath.Clean(e.Cwd)
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
 	rel, err := filepath.Rel(root, abs)
 	if err != nil {
 		return false

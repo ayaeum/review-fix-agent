@@ -33,6 +33,8 @@ func (ReportFindingsTool) InputSchema() map[string]any {
 			"evidence":      map[string]any{"type": "string", "description": "具体证据：触发问题的失败路径、调用方行为或取值。"},
 			"impact":        map[string]any{"type": "string", "description": "该问题导致的行为回归或故障。"},
 			"suggested_fix": map[string]any{"type": "string"},
+			"confidence":    map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}, "description": "你对该问题为真的确定程度。报告所有可疑点（含不确定的），用 confidence 标注；不确定不是不报告的理由。"},
+			"pre_existing":  map[string]any{"type": "boolean", "description": "该问题是否位于 diff 改动之外、且本次变更前就已存在。是则置 true，不计入本次变更的责任。"},
 		},
 		"required": []string{"severity", "file", "line", "title", "evidence", "impact"},
 	}
@@ -129,9 +131,10 @@ func (ReportFixTool) InputSchema() map[string]any {
 	verification := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"command": map[string]any{"type": "string"},
-			"passed":  map[string]any{"type": "boolean"},
-			"summary": map[string]any{"type": "string"},
+			"command":         map[string]any{"type": "string"},
+			"passed":          map[string]any{"type": "boolean"},
+			"summary":         map[string]any{"type": "string"},
+			"baseline_passed": map[string]any{"type": "boolean", "description": "打补丁【之前】运行同一命令是否通过。提供它以体现“修复前失败→修复后通过”的证据；缺省表示未在修复前运行。"},
 		},
 		"required": []string{"command", "passed", "summary"},
 	}
@@ -305,16 +308,6 @@ func validateReportedChangedFiles(input map[string]any, tc *tool.Context) error 
 	for _, p := range actual {
 		if !reported[cleanReportPath(p)] {
 			return fmt.Errorf("changed_files is missing file changed by agent: %s", p)
-		}
-	}
-	actualSet := map[string]bool{}
-	for _, p := range actual {
-		actualSet[cleanReportPath(p)] = true
-	}
-	for _, v := range raw {
-		p := cleanReportPath(stringValue(v))
-		if !actualSet[p] {
-			return fmt.Errorf("changed_files contains file not changed through agent write tools: %s", stringValue(v))
 		}
 	}
 	return nil

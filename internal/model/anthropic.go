@@ -50,9 +50,13 @@ func (a *Anthropic) Stream(ctx context.Context, req Request, onEvent func(Stream
 	if model == "" {
 		model = a.Model
 	}
+	maxTok := req.MaxTokens
+	if maxTok <= 0 {
+		maxTok = 8192
+	}
 	body := map[string]any{
 		"model":      model,
-		"max_tokens": req.MaxTokens,
+		"max_tokens": maxTok,
 		"stream":     true,
 		"messages":   convertMessages(req.Messages),
 	}

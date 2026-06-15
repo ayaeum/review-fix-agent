@@ -147,6 +147,12 @@ func runTrace(args []string) {
 	port := fs.Int("port", 7777, "HTTP port")
 	host := fs.String("host", "127.0.0.1", "bind address")
 	_ = fs.Parse(args)
+	dirExplicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "dir" {
+			dirExplicit = true
+		}
+	})
 
 	d := *dir
 	if d == "" {
@@ -155,6 +161,15 @@ func runTrace(args []string) {
 	}
 	if abs, err := filepath.Abs(d); err == nil {
 		d = abs
+	}
+	if dirExplicit {
+		info, err := os.Stat(d)
+		if err != nil {
+			fatal(fmt.Errorf("sessions directory %q: %w", d, err))
+		}
+		if !info.IsDir() {
+			fatal(fmt.Errorf("sessions directory %q is not a directory", d))
+		}
 	}
 	srv := trace.NewServer(d)
 	if err := srv.Serve(fmt.Sprintf("%s:%d", *host, *port)); err != nil {
@@ -286,6 +301,7 @@ func printReport(mode permission.Mode, result agent.Result, asJSON bool) {
 			fmt.Printf("(could not parse review report: %v)\n", err)
 			return
 		}
+		r = r.Filtered()
 		if asJSON {
 			fmt.Println(r.JSON())
 		} else {
@@ -320,7 +336,7 @@ func exitCode(mode permission.Mode, result agent.Result, runErr error) int {
 	switch mode {
 	case permission.ModeReview:
 		if result.Findings != nil {
-			if r, err := review.ParseReport(result.Findings); err == nil && r.Counts()["high"] > 0 {
+			if r, err := review.ParseReport(result.Findings); err == nil && r.Filtered().Counts()["high"] > 0 {
 				return 1
 			}
 		}

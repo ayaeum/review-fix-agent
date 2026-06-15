@@ -92,6 +92,7 @@ const $ = (s, el=document) => el.querySelector(s);
 let sessions = [];
 let currentId = null;
 let stickBottom = true;
+let openLongTexts = new Set();
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -113,6 +114,12 @@ function oneLine(v) {
   if (v == null) return "";
   const s = typeof v === "string" ? v : JSON.stringify(v);
   return s.length > 70 ? s.slice(0, 70) + "…" : s;
+}
+function rememberOpenLongTexts(root = $("#detail")) {
+  root.querySelectorAll("details[data-long-id]").forEach(d => {
+    if (d.open) openLongTexts.add(d.dataset.longId);
+    else openLongTexts.delete(d.dataset.longId);
+  });
 }
 
 async function loadSessions() {
@@ -147,6 +154,7 @@ async function loadDetail() {
   if (!currentId) return;
   const detailEl = $("#detail");
   const wasBottom = detailEl.scrollHeight - detailEl.scrollTop - detailEl.clientHeight < 60;
+  rememberOpenLongTexts(detailEl);
   try {
     const r = await fetch("/api/sessions/" + encodeURIComponent(currentId));
     if (!r.ok) { detailEl.innerHTML = '<div class="empty">Failed to load session.</div>'; return; }
@@ -231,7 +239,7 @@ function renderDetail(d) {
         if (!textBlocks.length) continue;
         const txt = textBlocks.map(b => b.text).join("\n");
         html.push(`<div class="item"><div class="who">user · ${esc(fmtTime(e.ts))}</div>
-          <div class="bubble user">${renderLongText(txt)}</div></div>`);
+          <div class="bubble user">${renderLongText(`${m.id}:${e.seq}`, txt)}</div></div>`);
       } else if (e.role === "assistant") {
         const parts = [];
         for (const b of (e.blocks || [])) {
@@ -250,12 +258,16 @@ function renderDetail(d) {
   $("#detail").innerHTML = html.join("");
 }
 
-function renderLongText(txt) {
+function renderLongText(id, txt) {
   if (txt.length <= 600) return esc(txt);
-  return `${esc(txt.slice(0, 600))}<details><summary>show full (${txt.length} chars)</summary>${esc(txt)}</details>`;
+  const open = openLongTexts.has(id) ? " open" : "";
+  return `${esc(txt.slice(0, 600))}<details data-long-id="${esc(id)}"${open}><summary>show full (${txt.length} chars)</summary>${esc(txt)}</details>`;
 }
 
 $("#refresh").onclick = () => { loadSessions(); loadDetail(); };
+$("#detail").addEventListener("toggle", e => {
+  if (e.target.matches("details[data-long-id]")) rememberOpenLongTexts();
+}, true);
 setInterval(() => { if ($("#auto").checked) { loadSessions(); loadDetail(); } }, 2000);
 loadSessions();
 </script>

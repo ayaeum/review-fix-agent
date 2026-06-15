@@ -81,7 +81,7 @@ func ClassifyCommand(cmd string) CommandClass {
 		return ClassDestructive
 	}
 	if hasShellExpansion(c) {
-		return ClassMutating
+		return ClassDestructive
 	}
 	if fileRedirect.MatchString(c) {
 		return ClassMutating

@@ -94,8 +94,8 @@ printf 'package demo\n\nimport "testing"\n\nfunc TestAdd(t *testing.T) {\n\tif A
 RC=$?
 grep -q 'return a + b' "$F/add.go" && ok "fix applied the minimal patch" || { bad "fix patch"; cat "$F/add.go"; }
 ( cd "$F" && go test ./... >/dev/null 2>&1 ) && ok "project tests pass after fix" || bad "tests after fix"
-grep -q 'Fix Report' "$TMPLOG/fix.log" && ok "fix report emitted" || bad "fix report"
-grep -q 'PASS' "$TMPLOG/fix.log" && ok "verification recorded as passing" || bad "verification recorded"
+grep -qE 'Fix Report|修复报告' "$TMPLOG/fix.log" && ok "fix report emitted" || bad "fix report"
+grep -qE 'PASS|通过' "$TMPLOG/fix.log" && ok "verification recorded as passing" || bad "verification recorded"
 [ "$RC" = 0 ] && ok "exit code 0 on passing verification" || bad "fix exit code (got $RC)"
 
 hdr "6. Trace server (API + UI)"

@@ -10,6 +10,20 @@ import (
 	"github.com/review-fix-agent/rfa/internal/tool"
 )
 
+// serialEmit wraps an emit callback with a mutex so parallel tool batches
+// don't interleave ANSI output on the terminal.
+func serialEmit(emit func(Event)) func(Event) {
+	if emit == nil {
+		return nil
+	}
+	var mu sync.Mutex
+	return func(e Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		emit(e)
+	}
+}
+
 // Orchestrator executes the tool_use blocks of one assistant turn. It enforces
 // the tool_use/tool_result pairing invariant (one result per use, always) and
 // schedules read-only/concurrency-safe tools in parallel batches while running
@@ -23,6 +37,7 @@ type Orchestrator struct {
 // content holds exactly one tool_result per tool_use, in original order.
 func (o *Orchestrator) RunTools(ctx context.Context, uses []message.Block, tc *tool.Context, emit func(Event)) message.Message {
 	results := make([]message.Block, len(uses))
+	emit = serialEmit(emit)
 
 	i := 0
 	for i < len(uses) {

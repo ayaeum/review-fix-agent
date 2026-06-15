@@ -67,7 +67,7 @@ func (l *Loop) Run(ctx context.Context, initial []message.Message, emit func(Eve
 
 		req := model.Request{
 			System:      l.Cfg.System,
-			Messages:    state,
+			Messages:    compactState(state),
 			Tools:       schemas,
 			Model:       l.Cfg.Model,
 			MaxTokens:   l.Cfg.MaxTokens,
@@ -161,6 +161,48 @@ func (l *Loop) stopHook(remindersLeft int) (bool, message.Message) {
 				"用户请求是中文时必须使用中文。")
 	}
 	return false, message.Message{}
+}
+
+// compactState returns a view of the message history where old, large
+// tool_result blocks are truncated to a short summary. The most recent
+// keepRecent messages are always preserved in full so the model retains
+// immediate working memory. This bounds the context growth that otherwise
+// scales linearly with turn count (H1).
+func compactState(state []message.Message) []message.Message {
+	const keepRecent = 6
+	const maxOldResult = 1024
+
+	if len(state) <= keepRecent {
+		return state
+	}
+
+	out := make([]message.Message, len(state))
+	cutoff := len(state) - keepRecent
+	copy(out[cutoff:], state[cutoff:])
+
+	for i := 0; i < cutoff; i++ {
+		m := state[i]
+		needsCopy := false
+		for _, b := range m.Content {
+			if b.Type == message.BlockToolResult && len(b.ResultText) > maxOldResult {
+				needsCopy = true
+				break
+			}
+		}
+		if !needsCopy {
+			out[i] = m
+			continue
+		}
+		blocks := make([]message.Block, len(m.Content))
+		for j, b := range m.Content {
+			if b.Type == message.BlockToolResult && len(b.ResultText) > maxOldResult {
+				b.ResultText = b.ResultText[:maxOldResult] + "\n[... compacted ...]"
+			}
+			blocks[j] = b
+		}
+		out[i] = message.Message{Role: m.Role, Content: blocks}
+	}
+	return out
 }
 
 // toSchemas converts tools into provider-facing schemas.

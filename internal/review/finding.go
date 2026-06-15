@@ -20,6 +20,13 @@ type Finding struct {
 	Evidence     string `json:"evidence"`
 	Impact       string `json:"impact"`
 	SuggestedFix string `json:"suggested_fix,omitempty"`
+	// Confidence is how sure the reviewer is the finding is real: high|medium|low.
+	// Findings are reported even when uncertain; this is the dial downstream uses
+	// to filter, so coverage is not sacrificed to self-censorship.
+	Confidence string `json:"confidence,omitempty"`
+	// PreExisting marks an issue that lives outside the diff and predates this
+	// change, so it is not counted against the current PR.
+	PreExisting bool `json:"pre_existing,omitempty"`
 }
 
 // Report is the full Review Mode output.
@@ -72,6 +79,28 @@ func (r Report) Counts() map[string]int {
 	return c
 }
 
+// Filtered returns a new Report with low-confidence + pre-existing findings
+// demoted: pre-existing findings are moved to a separate section in the
+// markdown output, and findings below minConfidence are dropped. This
+// implements the Ellipsis-style post-processing filter pipeline.
+func (r Report) Filtered() Report {
+	out := Report{
+		ReviewedScope: r.ReviewedScope,
+		NotReviewed:   r.NotReviewed,
+		Verification:  r.Verification,
+	}
+	seen := map[string]bool{}
+	for _, f := range r.Findings {
+		key := fmt.Sprintf("%s:%d:%s", f.File, f.Line, f.Title)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out.Findings = append(out.Findings, f)
+	}
+	return out
+}
+
 // JSON renders the report as indented JSON.
 func (r Report) JSON() string {
 	b, _ := json.MarshalIndent(r, "", "  ")
@@ -104,10 +133,22 @@ func (r Report) Markdown() string {
 		fmt.Fprintf(&b, "## %d. [%s] %s\n", i+1, strings.ToUpper(f.Severity), f.Title)
 		if zh {
 			fmt.Fprintf(&b, "- **位置:** `%s:%d`\n", f.File, f.Line)
+			if c := strings.TrimSpace(f.Confidence); c != "" {
+				fmt.Fprintf(&b, "- **置信度:** %s\n", c)
+			}
+			if f.PreExisting {
+				b.WriteString("- **既有问题:** 是（非本次 diff 引入，仅供参考）\n")
+			}
 			fmt.Fprintf(&b, "- **证据:** %s\n", f.Evidence)
 			fmt.Fprintf(&b, "- **影响:** %s\n", f.Impact)
 		} else {
 			fmt.Fprintf(&b, "- **Location:** `%s:%d`\n", f.File, f.Line)
+			if c := strings.TrimSpace(f.Confidence); c != "" {
+				fmt.Fprintf(&b, "- **Confidence:** %s\n", c)
+			}
+			if f.PreExisting {
+				b.WriteString("- **Pre-existing:** yes (not introduced by this diff)\n")
+			}
 			fmt.Fprintf(&b, "- **Evidence:** %s\n", f.Evidence)
 			fmt.Fprintf(&b, "- **Impact:** %s\n", f.Impact)
 		}

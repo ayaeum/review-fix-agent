@@ -56,3 +56,25 @@ func TestMarkdownAndJSON(t *testing.T) {
 		t.Errorf("json missing severity field:\n%s", js)
 	}
 }
+
+func TestConfidenceAndPreExistingRender(t *testing.T) {
+	r := Report{
+		Findings: []Finding{
+			{Severity: "medium", File: "a.go", Line: 5, Title: "可疑空指针解引用", Evidence: "x", Impact: "y",
+				Confidence: "low", PreExisting: true},
+		},
+		ReviewedScope: []string{"a.go"},
+	}
+	md := r.Markdown()
+	for _, want := range []string{"置信度", "low", "既有问题"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q\n%s", want, md)
+		}
+	}
+	js := r.JSON()
+	for _, want := range []string{"\"confidence\": \"low\"", "\"pre_existing\": true"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("json missing %q\n%s", want, js)
+		}
+	}
+}

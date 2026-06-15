@@ -11,7 +11,10 @@ import (
 
 // Suggest returns verification commands that appear to be available in the
 // project at cwd, ordered cheap-to-expensive (typecheck/lint before tests).
-func Suggest(cwd string) []string {
+// When changedFiles are provided, package-scoped targeted commands are suggested
+// first: they run faster and isolate the fix's effect from unrelated pre-existing
+// failures in the full suite.
+func Suggest(cwd string, changedFiles ...string) []string {
 	var out []string
 	exists := func(rel string) bool {
 		_, err := os.Stat(filepath.Join(cwd, rel))
@@ -20,6 +23,7 @@ func Suggest(cwd string) []string {
 
 	switch {
 	case exists("go.mod"):
+		out = append(out, targetedGoTests(changedFiles)...)
 		out = append(out, "go build ./...", "go vet ./...", "go test ./...")
 	case exists("Cargo.toml"):
 		out = append(out, "cargo check", "cargo clippy", "cargo test")
@@ -49,6 +53,29 @@ func Suggest(cwd string) []string {
 		}
 	}
 	return dedupe(out)
+}
+
+// targetedGoTests derives `go test ./<dir>/...` for each directory containing a
+// changed .go file, so the agent can run the affected packages before the full
+// suite. Root-package files are skipped since `go test ./...` already covers them.
+func targetedGoTests(changedFiles []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range changedFiles {
+		if !strings.HasSuffix(f, ".go") {
+			continue
+		}
+		dir := filepath.Dir(f)
+		if dir == "." || dir == "" {
+			continue
+		}
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		out = append(out, "go test ./"+dir+"/...")
+	}
+	return out
 }
 
 func nodeRunner(cwd string) string {

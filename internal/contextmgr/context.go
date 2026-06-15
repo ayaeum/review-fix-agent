@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/review-fix-agent/rfa/internal/permission"
 	"github.com/review-fix-agent/rfa/internal/verify"
@@ -64,7 +66,6 @@ func (m *Manager) systemState(ctx context.Context) string {
 	var b strings.Builder
 	b.WriteString("# 环境\n")
 	fmt.Fprintf(&b, "- 工作目录：%s\n", m.Cwd)
-	fmt.Fprintf(&b, "- 日期：%s\n", time.Now().Format("2006-01-02"))
 	if st := gitStatus(ctx, m.Cwd); st != "" {
 		fmt.Fprintf(&b, "- Git 状态：\n%s\n", indent(st, "    "))
 	}
@@ -113,9 +114,15 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 	}
 
 	if strings.TrimSpace(diff) != "" {
-		b.WriteString("\n## Diff\n```diff\n")
-		b.WriteString(truncateDiff(diff))
-		b.WriteString("\n```\n")
+		if len(diff) <= largeDiffThreshold {
+			b.WriteString("\n## Diff\n```diff\n")
+			b.WriteString(truncateDiff(diff))
+			b.WriteString("\n```\n")
+		} else {
+			b.WriteString("\n## Diff\n")
+			b.WriteString("diff 内容较大，已省略全文。请使用 `run_command` 执行 `git diff -- <file>` 或 `read_file` 逐文件查看变更。\n")
+			b.WriteString("上方「变更文件」列表是完整范围，请逐文件审查，不要遗漏。\n")
+		}
 	} else {
 		b.WriteString("\n## Diff\n（未检测到 diff；请通过 run_command 使用 git，或直接读取文件来确定范围）\n")
 	}
@@ -127,10 +134,12 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 		}
 	}
 
+	fmt.Fprintf(&b, "\n日期：%s\n", time.Now().Format("2006-01-02"))
+
 	b.WriteString("\n## 任务步骤\n")
 	if scope.Mode == permission.ModeFix {
 		b.WriteString(fixInstructions)
-		if hints := verify.Suggest(m.Cwd); len(hints) > 0 {
+		if hints := verify.Suggest(m.Cwd, changedPaths(changed)...); len(hints) > 0 {
 			b.WriteString("\n\n## 检测到的可用验证命令\n")
 			for _, h := range hints {
 				fmt.Fprintf(&b, "- `%s`\n", h)
@@ -160,10 +169,125 @@ func indent(s, pad string) string {
 	return strings.Join(lines, "\n")
 }
 
+// largeDiffThreshold is the byte size above which the full diff is NOT pushed
+// into the initial user message. Instead, only the file map is sent and the
+// agent is instructed to pull individual file diffs via git/read_file.
+const largeDiffThreshold = 80 * 1024
+
 func truncateDiff(diff string) string {
-	const max = 40 * 1024
-	if len(diff) <= max {
+	const budget = 40 * 1024
+	if len(diff) <= budget {
 		return diff
 	}
-	return diff[:max] + "\n[... diff 已截断；请读取具体文件获取完整上下文 ...]"
+	return prioritizedTruncate(diff, budget)
+}
+
+// prioritizedTruncate keeps high-priority file diffs intact and drops
+// low-priority ones (tests, generated, vendored, lock files) first.
+func prioritizedTruncate(diff string, budget int) string {
+	files := splitDiffByFile(diff)
+	if len(files) == 0 {
+		return safeSlice(diff, budget) + "\n[... diff 已截断；请读取具体文件获取完整上下文 ...]"
+	}
+
+	type entry struct {
+		header string // "diff --git ..." through end of file diff
+		prio   int    // lower = keep first
+	}
+	entries := make([]entry, len(files))
+	for i, f := range files {
+		entries[i] = entry{header: f, prio: filePriority(f)}
+	}
+
+	// Sort stable by priority (high-priority first).
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].prio < entries[j].prio
+	})
+
+	var kept []string
+	used := 0
+	dropped := 0
+	for _, e := range entries {
+		if used+len(e.header) <= budget {
+			kept = append(kept, e.header)
+			used += len(e.header)
+		} else {
+			dropped++
+		}
+	}
+	result := strings.Join(kept, "\n")
+	if dropped > 0 {
+		result += fmt.Sprintf("\n[... 省略了 %d 个低优先级文件的 diff；请用 read_file 或 git diff -- <file> 查看 ...]", dropped)
+	}
+	return result
+}
+
+// splitDiffByFile splits a unified diff into per-file chunks.
+func splitDiffByFile(diff string) []string {
+	var files []string
+	var cur strings.Builder
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "diff --git ") && cur.Len() > 0 {
+			files = append(files, cur.String())
+			cur.Reset()
+		}
+		if cur.Len() > 0 {
+			cur.WriteByte('\n')
+		}
+		cur.WriteString(line)
+	}
+	if cur.Len() > 0 {
+		files = append(files, cur.String())
+	}
+	return files
+}
+
+// lowPrioSuffixes are file suffixes whose diffs are dropped first when the
+// budget is tight. Order does not matter — they all get the same priority.
+var lowPrioSuffixes = []string{
+	"_test.go", ".test.ts", ".test.js", ".spec.ts", ".spec.js", "_test.py",
+	".lock", ".sum", ".snap",
+	".pb.go", ".gen.go", "_generated.go", ".generated.ts",
+	".min.js", ".min.css",
+}
+
+func filePriority(chunk string) int {
+	first := chunk
+	if i := strings.IndexByte(first, '\n'); i > 0 {
+		first = first[:i]
+	}
+	low := strings.ToLower(first)
+	if strings.Contains(low, "vendor/") || strings.Contains(low, "node_modules/") ||
+		strings.Contains(low, "generated/") || strings.Contains(low, "dist/") {
+		return 3
+	}
+	for _, suf := range lowPrioSuffixes {
+		if strings.Contains(low, suf) {
+			return 2
+		}
+	}
+	return 1
+}
+
+func safeSlice(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// changedPaths returns the display path of each changed file, used to scope
+// targeted verification commands (verify.Suggest) to the affected packages.
+func changedPaths(changed []ChangedFile) []string {
+	var out []string
+	for _, c := range changed {
+		if p := c.Path(); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
