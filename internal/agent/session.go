@@ -35,6 +35,7 @@ type Result struct {
 	Findings       map[string]any           // report_findings payload (review mode)
 	Fix            map[string]any           // report_fix payload (fix mode)
 	Changed        []contextmgr.ChangedFile // parsed diff hunks for post-processing
+	Diff           string                   // raw diff text for filter post-processing
 	TranscriptPath string
 }
 
@@ -131,6 +132,7 @@ func (s *Session) Run(ctx context.Context, emit func(Event)) (Result, error) {
 		Findings:       sink.Findings,
 		Fix:            sink.FixR,
 		Changed:        built.Changed,
+		Diff:           built.Diff,
 		TranscriptPath: ts.Path(),
 	}
 	ts.Append("session_end", map[string]any{"has_findings": sink.HasFindings(), "has_fix": sink.HasFix()})

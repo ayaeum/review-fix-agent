@@ -134,6 +134,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\n[run ended with error: %v]\n", runErr)
 	}
 
+	if mode == permission.ModeReview && result.Findings != nil && result.Diff != "" && !*quiet {
+		fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
+		if r, err := review.ParseReport(result.Findings); err == nil {
+			filtered := review.FilterFindings(ctx, client, activeModel, r, result.Diff)
+			if raw, err2 := review.ToPayload(filtered); err2 == nil {
+				result.Findings = raw
+			}
+		}
+	}
+
 	printReport(mode, result, *jsonOut)
 	fmt.Fprintf(os.Stderr, "\ntranscript: %s\n", result.TranscriptPath)
 

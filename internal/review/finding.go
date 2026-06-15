@@ -51,6 +51,19 @@ func ParseReport(payload map[string]any) (Report, error) {
 	return r, nil
 }
 
+// ToPayload converts a Report back to a map[string]any payload (inverse of ParseReport).
+func ToPayload(r Report) (map[string]any, error) {
+	raw, err := json.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 var severityRank = map[string]int{"high": 0, "medium": 1, "low": 2, "info": 3}
 
 // Sorted returns findings ordered by severity (high first) then file/line.
