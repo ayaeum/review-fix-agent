@@ -32,8 +32,9 @@ type SessionConfig struct {
 // Result is the outcome of a session.
 type Result struct {
 	Messages       []message.Message
-	Findings       map[string]any // report_findings payload (review mode)
-	Fix            map[string]any // report_fix payload (fix mode)
+	Findings       map[string]any           // report_findings payload (review mode)
+	Fix            map[string]any           // report_fix payload (fix mode)
+	Changed        []contextmgr.ChangedFile // parsed diff hunks for post-processing
 	TranscriptPath string
 }
 
@@ -129,6 +130,7 @@ func (s *Session) Run(ctx context.Context, emit func(Event)) (Result, error) {
 		Messages:       msgs,
 		Findings:       sink.Findings,
 		Fix:            sink.FixR,
+		Changed:        built.Changed,
 		TranscriptPath: ts.Path(),
 	}
 	ts.Append("session_end", map[string]any{"has_findings": sink.HasFindings(), "has_fix": sink.HasFix()})

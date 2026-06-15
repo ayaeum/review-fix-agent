@@ -301,6 +301,7 @@ func printReport(mode permission.Mode, result agent.Result, asJSON bool) {
 			fmt.Printf("(could not parse review report: %v)\n", err)
 			return
 		}
+		r.Findings = review.ResolveLineNumbers(r.Findings, result.Changed)
 		r = r.Filtered()
 		if asJSON {
 			fmt.Println(r.JSON())
