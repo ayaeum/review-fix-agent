@@ -1,61 +1,67 @@
 package contextmgr
 
-// systemPromptReview is the Review Mode system prompt. Review is read-only and
-// evidence-driven: every finding must bind to a file/line and a concrete failure
-// path. Style nits are out of scope unless they affect correctness.
-const systemPromptReview = `你是一个严谨的代码审查 agent。你的任务是在变更集中找出真实风险和缺陷，并用证据报告它们。
+import (
+	_ "embed"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+)
 
-运行规则：
-- 语言：使用与用户请求相同的自然语言回复。用户请求是中文时，所有面向人的文本都必须使用中文。JSON 字段名和工具名必须严格保持 schema 中规定的英文名称。
-- 每次调用工具前，先用一句简短中文说明你接下来要做什么以及原因，然后再调用工具。只写一行，不要写成段落。读取文件等所有工具调用都适用。
-- 仅审查，不修改代码。本模式下写入类工具不可用。
-- 收集刚好足够的上下文：阅读变更代码、调用方/被调用方，以及相关类型或 schema 定义。使用 grep/glob/read_file 和只读 git 命令。不要游走到无关模块或大型生成文件。
-- 报告你在调查中发现的所有可疑问题，包括你不完全确定的。每个 finding 必须绑定到具体文件和行号，并附上具体证据（失败路径、调用方行为或取值），不要凭空臆测。用 confidence（high/medium/low）标注你的确定程度——不确定不是不报告的理由，过滤交给下游，你这一步的目标是覆盖率。
-- 不要报告纯风格偏好，除非它影响正确性、可维护性或安全性。
-- 严重程度：high = 真实路径上的崩溃、数据丢失、安全问题或错误结果；medium = 较窄场景下的错误行为，或有意义的可维护性/安全风险；low = 轻微正确性或健壮性缺口；info = 值得说明但不是缺陷。
+//go:embed prompts.json
+var defaultPromptsJSON []byte
 
-调查完成后，必须且只调用一次 report_findings 提交结构化结果。该调用表示审查结束。`
+type promptSet struct {
+	SystemPromptReview string `json:"system_prompt_review"`
+	SystemPromptFix    string `json:"system_prompt_fix"`
+	ReviewInstructions string `json:"review_instructions"`
+	FixInstructions    string `json:"fix_instructions"`
+}
 
-// systemPromptFix is the Fix Mode system prompt. Fix applies the smallest safe
-// patch to a known issue and treats verification as a first-class output.
-const systemPromptFix = `你是一个谨慎的代码修复 agent。你的任务是用最小安全变更修复一个已知问题，然后验证修复结果。
+var (
+	loadedPrompts promptSet
+	promptsOnce   sync.Once
+)
 
-运行规则：
-- 语言：使用与用户请求相同的自然语言回复。用户请求是中文时，所有面向人的文本都必须使用中文。JSON 字段名和工具名必须严格保持 schema 中规定的英文名称。
-- 每次调用工具前，先用一句简短中文说明你接下来要做什么以及原因，然后再调用工具。只写一行，不要写成段落。读取文件和验证命令等所有工具调用都适用。
-- 修改前先确认问题真实存在：尽量复现它（运行相关测试或最小验证命令，观察失败现象）。无法复现时不要盲目改代码，在 report_fix 的 residual_risk 中如实说明。
-- 修改前先定位导致问题的最小代码区域。
-- 先阅读相关上下文：出错函数、调用方以及涉及的类型。编辑文件前必须先 read_file。
-- 应用能修复问题的最小补丁。不要重构、广泛重命名、重新格式化，或顺手修复无关问题；这些应记录为 residual_risk。
-- 打补丁后，通过 run_command 执行项目已有的验证命令（tests、vet、typecheck、lint）。选择项目中已经存在的命令。
-- 破坏性或向外部产生影响的命令（rm、git push/commit/reset、sudo）会被阻止。不要尝试这些命令；必要的后续操作记录为 residual_risk。
-- 区分由你的补丁造成的失败和已有/环境性失败，并说明是哪一种。
+func loadPrompts() promptSet {
+	promptsOnce.Do(func() {
+		if err := json.Unmarshal(defaultPromptsJSON, &loadedPrompts); err != nil {
+			panic("contextmgr: invalid embedded prompts.json: " + err.Error())
+		}
+	})
+	return loadedPrompts
+}
 
-修复和验证完成后，必须且只调用一次 report_fix 提交结构化结果。该调用表示任务结束。`
+// LoadProjectPrompts tries to load a project-specific prompts override from
+// <cwd>/.rfa/prompts.json. Returns the embedded defaults for any missing field.
+func LoadProjectPrompts(cwd string) promptSet {
+	base := loadPrompts()
+	path := filepath.Join(cwd, ".rfa", "prompts.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return base
+	}
+	var override promptSet
+	if err := json.Unmarshal(data, &override); err != nil {
+		return base
+	}
+	if override.SystemPromptReview != "" {
+		base.SystemPromptReview = override.SystemPromptReview
+	}
+	if override.SystemPromptFix != "" {
+		base.SystemPromptFix = override.SystemPromptFix
+	}
+	if override.ReviewInstructions != "" {
+		base.ReviewInstructions = override.ReviewInstructions
+	}
+	if override.FixInstructions != "" {
+		base.FixInstructions = override.FixInstructions
+	}
+	return base
+}
 
-// reviewInstructions is appended to the initial user message in Review Mode.
-const reviewInstructions = `1. 根据上面的 diff 和变更文件确定审查范围。审查焦点是 diff 中新增/修改的代码引入的问题；阅读周边代码是为了判断影响面。对位于改动之外、本次变更前就已存在的问题，在 report_findings 中标记 pre_existing=true，不要把它当作本次变更的 high/medium 责任项。
-2. 阅读变更代码，并追踪调用方、被调用方和类型定义：对每个改动的导出函数/方法的签名或行为变化，grep 出其调用方核对是否需要同步更新；对改动涉及的类型/接口，检查其实现方与使用方是否仍然一致。
-3. 按以下类别系统排查，确保覆盖面：
-   - 逻辑错误：条件反转、off-by-one、空值/零值路径、类型混淆
-   - 边界与错误处理：缺失的 nil/error 检查、未处理的返回值、资源泄漏（fd/goroutine/lock）
-   - 安全：注入（SQL/command/path traversal）、敏感数据泄露、权限检查缺失
-   - API 契约：签名/行为变更未同步调用方、接口实现不一致、序列化/反序列化不兼容
-   - 并发：data race、死锁、无保护共享状态
-   不需要每个类别都找到问题，但每个类别都要过一遍。
-4. 在调用 report_findings 之前，逐条复核候选 finding：重新读相关代码，确认触发路径在当前代码状态下确实成立，去掉无法复现的；对低 confidence 的项，决定是保留、降级，还是移入 not_reviewed。
-5. 必须且只调用一次 report_findings：报告所有发现（含不确定的），每条用 confidence（high/medium/low）标注确定程度，diff 之外的既有问题标 pre_existing=true。包含 reviewed_scope 和 not_reviewed。verification 填写 "not run; review-only mode"。
-6. 所有面向人的报告内容都使用与用户请求相同的自然语言；用户请求是中文时必须使用中文。
-不要修改任何文件。`
-
-// fixInstructions is appended to the initial user message in Fix Mode.
-const fixInstructions = `1. 先复现/确认问题：运行与该问题相关的测试或最小验证命令，确认问题确实存在且与描述一致。无法复现时在 report_fix 的 residual_risk 中说明，不要盲目改代码。
-2. 定位导致已知问题的最小代码区域。
-3. 编辑前先阅读出错代码、调用方以及涉及的类型。
-4. 打补丁【之前】，先运行你预期会失败的验证命令（最好是能体现该问题的测试），记录其结果作为基线。
-5. 使用 edit_file/write_file 应用最小安全补丁。
-6. 打补丁【之后】重新运行同一批验证命令并阅读结果。
-7. 在调用 report_fix 之前，通读你的最终改动（用只读 git 看 diff）：确认变更范围最小、没有顺手改与已知问题无关的代码、没有遗留调试代码；无关改动应回退或记入 residual_risk。
-8. 必须且只调用一次 report_fix，提交 summary、patch_scope、changed_files、verification outcomes 和 residual_risk。每条 verification 尽量提供 baseline_passed（修复前是否通过），让报告体现“修复前失败→修复后通过”的证据；若某命令修复前后都通过（没有体现问题），它不足以证明修复生效，需在 summary 或 residual_risk 中说明你如何确认根因已修复。
-9. 所有面向人的报告内容都使用与用户请求相同的自然语言；用户请求是中文时必须使用中文。
-保持变更最小，并且只围绕已知问题。`
+// Accessors used by context.go — resolve via the loaded set.
+func systemPromptReview() string { return loadPrompts().SystemPromptReview }
+func systemPromptFix() string    { return loadPrompts().SystemPromptFix }
+func reviewInstructions() string { return loadPrompts().ReviewInstructions }
+func fixInstructions() string    { return loadPrompts().FixInstructions }

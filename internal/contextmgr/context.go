@@ -51,9 +51,9 @@ func (m *Manager) Build(ctx context.Context, scope Scope) (Built, error) {
 	var sys string
 	switch scope.Mode {
 	case permission.ModeFix:
-		sys = systemPromptFix
+		sys = systemPromptFix()
 	default:
-		sys = systemPromptReview
+		sys = systemPromptReview()
 	}
 	sys += "\n\n" + m.systemState(ctx)
 
@@ -138,7 +138,7 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 
 	b.WriteString("\n## 任务步骤\n")
 	if scope.Mode == permission.ModeFix {
-		b.WriteString(fixInstructions)
+		b.WriteString(fixInstructions())
 		if hints := verify.Suggest(m.Cwd, changedPaths(changed)...); len(hints) > 0 {
 			b.WriteString("\n\n## 检测到的可用验证命令\n")
 			for _, h := range hints {
@@ -146,7 +146,7 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 			}
 		}
 	} else {
-		b.WriteString(reviewInstructions)
+		b.WriteString(reviewInstructions())
 	}
 	return b.String()
 }
