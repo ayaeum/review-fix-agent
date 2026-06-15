@@ -163,8 +163,16 @@ func recordTraceEvent(ts *transcript.Store, e Event) {
 	if e.Kind != EvAssistant && e.Text != "" {
 		payload["text"] = e.Text
 	}
+	if e.Duration > 0 {
+		payload["duration_ms"] = e.Duration.Milliseconds()
+	}
 	if e.Usage.InputTokens != 0 || e.Usage.OutputTokens != 0 {
-		payload["usage"] = e.Usage
+		payload["usage"] = map[string]int{
+			"input_tokens":                e.Usage.InputTokens,
+			"output_tokens":               e.Usage.OutputTokens,
+			"cache_read_input_tokens":     e.Usage.CacheReadTokens,
+			"cache_creation_input_tokens": e.Usage.CacheCreationTokens,
+		}
 	}
 	ts.Append("event", payload)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/review-fix-agent/rfa/internal/message"
 	"github.com/review-fix-agent/rfa/internal/model"
@@ -76,6 +77,7 @@ func (l *Loop) Run(ctx context.Context, initial []message.Message, emit func(Eve
 			Temperature: l.Cfg.Temperature,
 		}
 
+		llmStart := time.Now()
 		assistant, usage, err := l.Client.Stream(ctx, req, func(se model.StreamEvent) {
 			switch se.Kind {
 			case model.StreamText:
@@ -84,14 +86,15 @@ func (l *Loop) Run(ctx context.Context, initial []message.Message, emit func(Eve
 				emitEvent(emit, Event{Kind: EvThinking, Text: se.Text})
 			}
 		})
+		llmDur := time.Since(llmStart)
 		if err != nil {
-			emitEvent(emit, Event{Kind: EvError, Text: err.Error(), IsError: true})
+			emitEvent(emit, Event{Kind: EvError, Text: err.Error(), IsError: true, Duration: llmDur})
 			return state, fmt.Errorf("model call failed: %w", err)
 		}
 
 		state = append(state, assistant)
 		l.Transcript.Append("message", assistant)
-		emitEvent(emit, Event{Kind: EvAssistant, Text: assistant.Text(), Usage: usage})
+		emitEvent(emit, Event{Kind: EvAssistant, Text: assistant.Text(), Usage: usage, Duration: llmDur})
 
 		uses := assistant.ToolUses()
 		if len(uses) == 0 {

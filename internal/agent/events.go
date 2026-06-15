@@ -3,7 +3,11 @@
 // transcript around a single explicit state machine.
 package agent
 
-import "github.com/review-fix-agent/rfa/internal/message"
+import (
+	"time"
+
+	"github.com/review-fix-agent/rfa/internal/message"
+)
 
 // EventKind classifies a runtime event emitted by the loop. Runtime events are
 // for UI/SDK/logging; they do not (by themselves) become model history.
@@ -31,4 +35,5 @@ type Event struct {
 	ToolInput map[string]any
 	IsError   bool
 	Usage     message.Usage
+	Duration  time.Duration
 }

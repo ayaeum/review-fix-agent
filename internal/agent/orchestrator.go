@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/review-fix-agent/rfa/internal/message"
 	"github.com/review-fix-agent/rfa/internal/permission"
@@ -111,13 +112,15 @@ func (o *Orchestrator) runOne(ctx context.Context, use message.Block, tc *tool.C
 
 	emitEvent(emit, Event{Kind: EvToolStart, ToolName: t.Name(), ToolUseID: id, ToolInput: use.Input})
 
+	start := time.Now()
 	res, err := t.Call(ctx, use.Input, tc)
+	dur := time.Since(start)
 	if err != nil {
-		emitEvent(emit, Event{Kind: EvToolEnd, ToolName: t.Name(), ToolUseID: id, Text: err.Error(), IsError: true})
+		emitEvent(emit, Event{Kind: EvToolEnd, ToolName: t.Name(), ToolUseID: id, Text: err.Error(), IsError: true, Duration: dur})
 		return message.ToolResult(id, "tool error: "+err.Error(), true)
 	}
 
-	emitEvent(emit, Event{Kind: EvToolEnd, ToolName: t.Name(), ToolUseID: id, Text: res.Text, IsError: res.IsError})
+	emitEvent(emit, Event{Kind: EvToolEnd, ToolName: t.Name(), ToolUseID: id, Text: res.Text, IsError: res.IsError, Duration: dur})
 	return message.ToolResult(id, res.Text, res.IsError)
 }
 
