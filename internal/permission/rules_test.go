@@ -36,6 +36,10 @@ func TestClassifyCommand(t *testing.T) {
 		{"find . -okdir rm {} ;", ClassMutating},
 		{"find . -fprint out.txt", ClassMutating},
 		{"find . -fprintf out.txt %p", ClassMutating},
+		{`awk 'BEGIN{system("rm -rf /")}'`, ClassMutating},      // system() = arbitrary exec, not read-only
+		{`awk 'BEGIN{system ("id")}' file`, ClassMutating},      // tolerate a space before the paren
+		{"awk '{print $1}' file.txt", ClassReadOnly},            // ordinary awk stays read-only
+		{"cat x | awk '{print $2}'", ClassReadOnly},             // read-only pipeline unaffected
 	}
 	for _, c := range cases {
 		if got := ClassifyCommand(c.cmd); got != c.want {

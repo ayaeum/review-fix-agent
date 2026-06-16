@@ -112,7 +112,18 @@ func ClassifyCommand(cmd string) CommandClass {
 
 func mutatingFilterCommand(cmd string) bool {
 	low := strings.ToLower(cmd)
-	return strings.Contains(low, "sed -i") || strings.Contains(low, "perl -i")
+	// In-place edits by stream tools rewrite files.
+	if strings.Contains(low, "sed -i") || strings.Contains(low, "perl -i") {
+		return true
+	}
+	// system(...) lets awk/perl/etc. spawn an arbitrary shell command — its
+	// payload (e.g. inside quotes) is invisible to the destructive-pattern scan,
+	// so a read-only leader like `awk` must not stay read-only when it is present.
+	// Treat as mutating: denied in Review Mode, confirmation-gated in Fix Mode.
+	if strings.Contains(strings.ReplaceAll(low, " ", ""), "system(") {
+		return true
+	}
+	return false
 }
 
 func hasDestructivePattern(cmd string) bool {
