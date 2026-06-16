@@ -47,12 +47,35 @@ func Suggest(cwd string, changedFiles ...string) []string {
 	if exists("Makefile") {
 		mk := readFile(filepath.Join(cwd, "Makefile"))
 		for _, target := range []string{"test", "lint", "check", "vet"} {
-			if strings.Contains(mk, "\n"+target+":") || strings.HasPrefix(mk, target+":") {
+			if makeHasTarget(mk, target) {
 				out = append(out, "make "+target)
 			}
 		}
 	}
 	return dedupe(out)
+}
+
+// makeHasTarget reports whether a Makefile defines a real rule named target. It
+// matches "target:" / "target: deps" at the start of a line, but rejects
+// variable assignments like "target :=" or "target ::=" (which a naive
+// substring scan would mistake for a target) and prefix collisions like
+// "testing:" when looking for "test".
+func makeHasTarget(mk, target string) bool {
+	for _, line := range strings.Split(mk, "\n") {
+		if !strings.HasPrefix(line, target) {
+			continue
+		}
+		rest := strings.TrimLeft(line[len(target):], " \t")
+		if !strings.HasPrefix(rest, ":") {
+			continue
+		}
+		rest = strings.TrimLeft(strings.TrimLeft(rest, ":"), " \t")
+		if strings.HasPrefix(rest, "=") {
+			continue // ":=" / "::=" etc. — a variable assignment, not a target
+		}
+		return true
+	}
+	return false
 }
 
 // targetedGoTests derives `go test ./<dir>/...` for each directory containing a
