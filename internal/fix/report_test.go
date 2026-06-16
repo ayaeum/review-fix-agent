@@ -77,7 +77,16 @@ func TestVerificationStatusAndMarkdown(t *testing.T) {
 	if !r3.AllPassed() {
 		t.Error("AllPassed should be true for a passing verification without baseline")
 	}
-	if !strings.Contains(r3.Markdown(), "[PASS]") {
-		t.Errorf("a no-baseline verification should render plain [PASS]:\n%s", r3.Markdown())
+	md3 := r3.Markdown()
+	if !strings.Contains(md3, "[PASS]") {
+		t.Errorf("a no-baseline verification should render plain [PASS]:\n%s", md3)
+	}
+	// With no baseline captured, the warning must NOT claim "passed before and
+	// after" (that transition was never measured); it must flag the missing baseline.
+	if strings.Contains(md3, "修复前后都通过") {
+		t.Errorf("no-baseline report must not claim a before/after observation:\n%s", md3)
+	}
+	if !strings.Contains(md3, "未记录修复前的基线") {
+		t.Errorf("no-baseline report must flag the missing baseline:\n%s", md3)
 	}
 }

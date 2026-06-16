@@ -75,6 +75,17 @@ func (r Report) ProvedFix() bool {
 	return sawFailToPass
 }
 
+// hasBaseline reports whether any verification recorded a pre-patch baseline,
+// distinguishing "passed before and after" from "no before-state measured".
+func (r Report) hasBaseline() bool {
+	for _, v := range r.Verification {
+		if v.BaselinePassed != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // verificationStatus renders PASS/FAIL, or a BEFORE→AFTER transition when a
 // baseline was recorded (FAIL→PASS proves the fix; PASS→PASS proves nothing).
 func verificationStatus(v Verification) string {
@@ -150,10 +161,23 @@ func (r Report) Markdown() string {
 		fmt.Fprintf(&b, "- [%s] `%s` — %s\n", verificationStatus(v), v.Command, v.Summary)
 	}
 	if len(r.Verification) > 0 && !r.ProvedFix() {
-		if zh {
-			b.WriteString("> ⚠️ 没有验证命令从失败转为通过——这些命令修复前后都通过，未直接证明问题已修复，请确认根因。\n")
-		} else {
-			b.WriteString("> ⚠️ No verification went FAIL→PASS — commands passed before and after, so the fix is not directly proven; confirm the root cause.\n")
+		switch {
+		case !r.hasBaseline():
+			// No before-state was measured at all, so a current PASS proves nothing
+			// about whether this change caused it. Do not claim "passed before and
+			// after" — that transition was never observed.
+			if zh {
+				b.WriteString("> ⚠️ 未记录修复前的基线，无法直接证明这些命令的通过是由本次修复带来的，请补充基线或确认根因。\n")
+			} else {
+				b.WriteString("> ⚠️ No pre-fix baseline was captured, so passing commands do not directly prove this change fixed the issue; capture a baseline or confirm the root cause.\n")
+			}
+		default:
+			// Baselines exist but none went FAIL→PASS (passed before and after, or a regression).
+			if zh {
+				b.WriteString("> ⚠️ 没有验证命令从失败转为通过——未直接证明问题已修复，请确认根因。\n")
+			} else {
+				b.WriteString("> ⚠️ No verification went FAIL→PASS, so the fix is not directly proven; confirm the root cause.\n")
+			}
 		}
 	}
 	b.WriteString("\n")
