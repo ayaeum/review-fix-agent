@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -78,10 +79,16 @@ func (s *Session) Run(ctx context.Context, emit func(Event)) (Result, error) {
 		return Result{}, fmt.Errorf("build context: %w", err)
 	}
 
-	// 4. Transcript.
+	// 4. Transcript. Defaults to <cwd>/.rfa/sessions so the `rfa trace` viewer,
+	// serve.sh, and e2e all resolve the same location; RFA_TRACE_DIR overrides
+	// the base for callers who want a shared/out-of-tree store.
 	dir := cfg.TranscriptDir
 	if dir == "" {
-		dir = filepath.Join(cfg.Cwd, ".rfa", "sessions")
+		if envDir := os.Getenv("RFA_TRACE_DIR"); envDir != "" {
+			dir = envDir
+		} else {
+			dir = filepath.Join(cfg.Cwd, ".rfa", "sessions")
+		}
 	}
 	sessionID := fmt.Sprintf("%s-%s", cfg.Mode, time.Now().Format("20060102-150405"))
 	ts, err := transcript.New(dir, sessionID)
