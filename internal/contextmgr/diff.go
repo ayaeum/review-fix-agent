@@ -157,17 +157,20 @@ func RunGitDiff(ctx context.Context, cwd, base, commit string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = cwd
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if commit != "" {
-			return string(out), err
-		}
-		// Fall back to plain unstaged diff (e.g. fresh repo without HEAD).
-		fb := exec.CommandContext(ctx, "git", "diff", "--no-color")
-		fb.Dir = cwd
-		if out2, err2 := fb.CombinedOutput(); err2 == nil {
-			return string(out2), nil
-		}
+	if err == nil {
+		return string(out), nil
+	}
+	// Only the HEAD case has a meaningful fallback: a fresh repo without a HEAD
+	// commit can still have unstaged changes worth diffing. For an explicit
+	// commit or base ref, a failure means the requested ref is bad — surface it
+	// rather than silently reviewing a different (working-tree) diff.
+	if commit != "" || base != "" {
 		return string(out), err
 	}
-	return string(out), nil
+	fb := exec.CommandContext(ctx, "git", "diff", "--no-color")
+	fb.Dir = cwd
+	if out2, err2 := fb.CombinedOutput(); err2 == nil {
+		return string(out2), nil
+	}
+	return string(out), err
 }

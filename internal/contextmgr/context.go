@@ -42,7 +42,9 @@ func NewManager(cwd string) *Manager { return &Manager{Cwd: cwd} }
 // Build assembles the system prompt and the initial user message.
 func (m *Manager) Build(ctx context.Context, scope Scope) (Built, error) {
 	diff, err := RunGitDiff(ctx, m.Cwd, scope.Base, scope.Commit)
-	if err != nil && strings.TrimSpace(scope.Commit) != "" {
+	if err != nil && (strings.TrimSpace(scope.Commit) != "" || strings.TrimSpace(scope.Base) != "") {
+		// An explicit commit/base ref that failed to diff is a hard error: the
+		// user asked to review a specific revision, not whatever is in the tree.
 		return Built{}, fmt.Errorf("collect diff: %w", err)
 	}
 	changed := ParseUnifiedDiff(diff)
