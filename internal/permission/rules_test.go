@@ -13,6 +13,7 @@ func TestClassifyCommand(t *testing.T) {
 		{"go vet ./... && go build ./...", ClassReadOnly},
 		{"cat file.go | grep TODO", ClassReadOnly},
 		{"npm test", ClassReadOnly},
+		{"go run ./cmd/x", ClassMutating}, // executes an arbitrary program; not read-only
 		{"go generate ./...", ClassMutating},
 		{"gofmt -w .", ClassMutating},
 		{"echo hi > out.txt", ClassMutating},

@@ -27,7 +27,11 @@ var readOnlyPrefixes = []string{
 	"ls", "cat", "head", "tail", "wc", "find", "tree", "pwd", "echo", "stat", "nl",
 	"grep", "rg", "ag", "fd", "which", "file", "du", "df",
 	"sed -n", "awk", "sort", "uniq",
-	"go test", "go vet", "go build", "go run", "go list", "gofmt -l", "golangci-lint run",
+	// NOTE: "go run" is deliberately NOT here. Unlike test/vet/build/list (which
+	// inspect or compile but do not execute an arbitrary program), `go run X`
+	// compiles and runs X with full process privileges — it must not be treated
+	// as read-only, or Review Mode's read-only guarantee could be bypassed.
+	"go test", "go vet", "go build", "go list", "gofmt -l", "golangci-lint run",
 	"npm test", "npm run test", "yarn test", "pnpm test", "bun test", "bun run test",
 	"pytest", "python -m pytest", "go doc", "tsc --noemit", "tsc --noEmit",
 	"make test", "make lint", "make check", "make vet",
