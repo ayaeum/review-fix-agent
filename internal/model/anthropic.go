@@ -168,7 +168,13 @@ func aggregateSSE(r io.Reader, onEvent func(StreamEvent)) (message.Message, mess
 				}
 			}
 		case "message_delta":
-			usage.OutputTokens += evt.Usage.OutputTokens
+			// Anthropic reports the CUMULATIVE output token count here, so
+			// overwrite rather than add: message_start already contributed the
+			// initial output_tokens (typically 1), and adding the cumulative total
+			// on top would double-count it.
+			if evt.Usage.OutputTokens > 0 {
+				usage.OutputTokens = evt.Usage.OutputTokens
+			}
 		case "message_stop", "content_block_stop", "ping":
 			// no-op
 		case "error":
