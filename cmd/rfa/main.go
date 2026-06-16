@@ -139,8 +139,13 @@ func main() {
 				fatal(fmt.Errorf("parallel review: %w", perr))
 			}
 
-			if built.Diff != "" && !*quiet {
-				fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
+			if built.Diff != "" {
+				// The false-positive filter must run regardless of --quiet: quiet
+				// only suppresses streaming, not result quality. Skipping it in CI
+				// (the main --quiet user) would let false positives drive exit code.
+				if !*quiet {
+					fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
+				}
 				r = review.FilterFindings(ctx, client, activeModel, r, built.Diff)
 			}
 			r.Findings = review.ResolveLineNumbers(r.Findings, built.Changed)
@@ -180,8 +185,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\n[run ended with error: %v]\n", runErr)
 	}
 
-	if mode == permission.ModeReview && result.Findings != nil && result.Diff != "" && !*quiet {
-		fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
+	if mode == permission.ModeReview && result.Findings != nil && result.Diff != "" {
+		// Run the false-positive filter regardless of --quiet (quiet only governs
+		// streaming verbosity). Otherwise CI runs would gate on unfiltered findings.
+		if !*quiet {
+			fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
+		}
 		if r, err := review.ParseReport(result.Findings); err == nil {
 			filtered := review.FilterFindings(ctx, client, activeModel, r, result.Diff)
 			if raw, err2 := review.ToPayload(filtered); err2 == nil {
