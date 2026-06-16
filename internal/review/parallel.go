@@ -194,10 +194,10 @@ func reviewedPaths(changed []contextmgr.ChangedFile) []string {
 }
 
 func BuildDiffByFile(changed []contextmgr.ChangedFile, fullDiff string) map[string]string {
-	chunks := splitDiffByFile(fullDiff)
+	chunks := contextmgr.SplitDiffByFile(fullDiff)
 	byFile := make(map[string]string, len(chunks))
 	for _, chunk := range chunks {
-		path := extractPathFromDiffChunk(chunk)
+		path := contextmgr.DiffChunkPath(chunk)
 		if path != "" {
 			byFile[path] = chunk
 		}
@@ -212,41 +212,6 @@ func BuildDiffByFile(changed []contextmgr.ChangedFile, fullDiff string) map[stri
 		}
 	}
 	return byFile
-}
-
-func splitDiffByFile(diff string) []string {
-	var files []string
-	var cur strings.Builder
-	for _, line := range strings.Split(diff, "\n") {
-		if strings.HasPrefix(line, "diff --git ") && cur.Len() > 0 {
-			files = append(files, cur.String())
-			cur.Reset()
-		}
-		if cur.Len() > 0 {
-			cur.WriteByte('\n')
-		}
-		cur.WriteString(line)
-	}
-	if cur.Len() > 0 {
-		files = append(files, cur.String())
-	}
-	return files
-}
-
-func extractPathFromDiffChunk(chunk string) string {
-	for _, line := range strings.Split(chunk, "\n") {
-		if strings.HasPrefix(line, "+++ ") {
-			p := strings.TrimPrefix(line, "+++ ")
-			p = strings.TrimSpace(p)
-			if strings.HasPrefix(p, "b/") {
-				return p[2:]
-			}
-			if p != "/dev/null" {
-				return p
-			}
-		}
-	}
-	return ""
 }
 
 func renderChangedFile(c contextmgr.ChangedFile) string {

@@ -187,7 +187,7 @@ func truncateDiff(diff string) string {
 // prioritizedTruncate keeps high-priority file diffs intact and drops
 // low-priority ones (tests, generated, vendored, lock files) first.
 func prioritizedTruncate(diff string, budget int) string {
-	files := splitDiffByFile(diff)
+	files := SplitDiffByFile(diff)
 	if len(files) == 0 {
 		return safeSlice(diff, budget) + "\n[... diff 已截断；请读取具体文件获取完整上下文 ...]"
 	}
@@ -222,26 +222,6 @@ func prioritizedTruncate(diff string, budget int) string {
 		result += fmt.Sprintf("\n[... 省略了 %d 个低优先级文件的 diff；请用 read_file 或 git diff -- <file> 查看 ...]", dropped)
 	}
 	return result
-}
-
-// splitDiffByFile splits a unified diff into per-file chunks.
-func splitDiffByFile(diff string) []string {
-	var files []string
-	var cur strings.Builder
-	for _, line := range strings.Split(diff, "\n") {
-		if strings.HasPrefix(line, "diff --git ") && cur.Len() > 0 {
-			files = append(files, cur.String())
-			cur.Reset()
-		}
-		if cur.Len() > 0 {
-			cur.WriteByte('\n')
-		}
-		cur.WriteString(line)
-	}
-	if cur.Len() > 0 {
-		files = append(files, cur.String())
-	}
-	return files
 }
 
 // lowPrioSuffixes are file suffixes whose diffs are dropped first when the
