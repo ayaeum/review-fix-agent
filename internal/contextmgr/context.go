@@ -217,6 +217,17 @@ func prioritizedTruncate(diff string, budget int) string {
 			dropped++
 		}
 	}
+	if len(kept) == 0 {
+		// A single file larger than the whole budget would otherwise yield an
+		// empty inline diff. Include a head-truncated slice of the highest-priority
+		// file so the agent still gets some inline context to start from.
+		head := safeSlice(entries[0].header, budget)
+		note := "\n[... 该文件 diff 已截断；完整内容请用 read_file 或 git diff -- <file> 查看 ...]"
+		if dropped > 1 {
+			note = fmt.Sprintf("\n[... 该文件 diff 已截断，另有 %d 个文件未内联；请用 read_file 或 git diff -- <file> 查看 ...]", dropped-1)
+		}
+		return head + note
+	}
 	result := strings.Join(kept, "\n")
 	if dropped > 0 {
 		result += fmt.Sprintf("\n[... 省略了 %d 个低优先级文件的 diff；请用 read_file 或 git diff -- <file> 查看 ...]", dropped)
