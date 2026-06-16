@@ -146,7 +146,11 @@ func main() {
 				if !*quiet {
 					fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
 				}
-				r = review.FilterFindings(ctx, client, activeModel, r, built.Diff)
+				var ferr error
+				if r, ferr = review.FilterFindings(ctx, client, activeModel, r, built.Diff); ferr != nil {
+					// Surface unconditionally: findings (and the exit code) are unfiltered.
+					fmt.Fprintf(os.Stderr, "  \033[33m• review filter skipped (%v); findings are UNFILTERED\033[0m\n", ferr)
+				}
 			}
 			r.Findings = review.ResolveLineNumbers(r.Findings, built.Changed)
 			r = r.Filtered()
@@ -192,7 +196,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
 		}
 		if r, err := review.ParseReport(result.Findings); err == nil {
-			filtered := review.FilterFindings(ctx, client, activeModel, r, result.Diff)
+			filtered, ferr := review.FilterFindings(ctx, client, activeModel, r, result.Diff)
+			if ferr != nil {
+				fmt.Fprintf(os.Stderr, "  \033[33m• review filter skipped (%v); findings are UNFILTERED\033[0m\n", ferr)
+			}
 			if raw, err2 := review.ToPayload(filtered); err2 == nil {
 				result.Findings = raw
 			}

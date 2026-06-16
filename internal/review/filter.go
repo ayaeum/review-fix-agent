@@ -34,11 +34,15 @@ type filterEntry struct {
 	Evidence string `json:"evidence"`
 }
 
-// FilterFindings uses an LLM call to remove false-positive findings.
-// Returns the filtered report. On any error, returns the original unmodified.
-func FilterFindings(ctx context.Context, client model.Client, modelID string, r Report, diff string) Report {
+// FilterFindings uses an LLM call to remove false-positive findings. It returns
+// the filtered report and a nil error on success. On a model/client failure it
+// returns the original report UNFILTERED together with a non-nil error, so the
+// caller can surface that the filter was skipped (the report — and any exit code
+// derived from it — still reflects unfiltered findings). A nothing-to-do case
+// (no findings or no diff) returns the input with a nil error.
+func FilterFindings(ctx context.Context, client model.Client, modelID string, r Report, diff string) (Report, error) {
 	if len(r.Findings) == 0 || diff == "" {
-		return r
+		return r, nil
 	}
 
 	entries := make([]filterEntry, len(r.Findings))
@@ -69,12 +73,12 @@ func FilterFindings(ctx context.Context, client model.Client, modelID string, r 
 
 	assistant, _, err := client.Stream(ctx, req, nil)
 	if err != nil {
-		return r
+		return r, fmt.Errorf("filter model call failed: %w", err)
 	}
 
 	removeIDs := parseFilterIDs(strings.TrimSpace(assistant.Text()), len(r.Findings))
 	if len(removeIDs) == 0 {
-		return r
+		return r, nil
 	}
 
 	out := Report{
@@ -87,7 +91,7 @@ func FilterFindings(ctx context.Context, client model.Client, modelID string, r 
 			out.Findings = append(out.Findings, f)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func parseFilterIDs(raw string, total int) map[int]struct{} {
