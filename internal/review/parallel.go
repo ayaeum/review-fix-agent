@@ -47,20 +47,20 @@ func ShouldParallelReview(changed []contextmgr.ChangedFile) bool {
 	return reviewable >= parallelFileThreshold
 }
 
-func ParallelReview(ctx context.Context, cfg ParallelConfig, changed []contextmgr.ChangedFile, diffByFile map[string]string, focus string) Report {
+// ParallelReview reviews each changed file concurrently. Per-file failures are
+// tolerated (best-effort), but if every attempted file errors — the signature of
+// a systemic model/client outage — it returns a non-nil error so the caller does
+// not mistake an empty report for a clean changeset.
+func ParallelReview(ctx context.Context, cfg ParallelConfig, changed []contextmgr.ChangedFile, diffByFile map[string]string, focus string) (Report, error) {
 	concurrency := cfg.Concurrency
 	if concurrency <= 0 {
 		concurrency = 4
 	}
 
-	type fileResult struct {
-		findings []Finding
-		file     string
-	}
-
 	sem := make(chan struct{}, concurrency)
 	var mu sync.Mutex
 	var allFindings []Finding
+	var attempted, failed int
 
 	var wg sync.WaitGroup
 	for _, cf := range changed {
@@ -73,29 +73,36 @@ func ParallelReview(ctx context.Context, cfg ParallelConfig, changed []contextmg
 			continue
 		}
 
+		attempted++
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(p, d string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			findings := reviewSingleFile(ctx, cfg, p, d, focus)
-			if len(findings) > 0 {
-				mu.Lock()
+			findings, err := reviewSingleFile(ctx, cfg, p, d, focus)
+			mu.Lock()
+			if err != nil {
+				failed++
+			} else if len(findings) > 0 {
 				allFindings = append(allFindings, findings...)
-				mu.Unlock()
 			}
+			mu.Unlock()
 		}(path, fileDiff)
 	}
 	wg.Wait()
 
-	return Report{
+	rep := Report{
 		Findings:      allFindings,
 		ReviewedScope: reviewedPaths(changed),
 	}
+	if attempted > 0 && failed == attempted {
+		return rep, fmt.Errorf("parallel review failed: all %d file review(s) errored (model/client failure?)", attempted)
+	}
+	return rep, nil
 }
 
-func reviewSingleFile(ctx context.Context, cfg ParallelConfig, path, fileDiff, focus string) []Finding {
+func reviewSingleFile(ctx context.Context, cfg ParallelConfig, path, fileDiff, focus string) ([]Finding, error) {
 	var userMsg strings.Builder
 	fmt.Fprintf(&userMsg, "## 文件: %s\n\n", path)
 	if focus != "" {
@@ -121,10 +128,10 @@ func reviewSingleFile(ctx context.Context, cfg ParallelConfig, path, fileDiff, f
 
 	resp, _, err := cfg.Client.Stream(ctx, req, func(model.StreamEvent) {})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	return parseFileFindings(resp.Text(), path)
+	return parseFileFindings(resp.Text(), path), nil
 }
 
 func parseFileFindings(text, filePath string) []Finding {

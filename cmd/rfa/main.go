@@ -127,12 +127,17 @@ func main() {
 				fmt.Fprintf(os.Stderr, "  \033[2m→ parallel review: %d files\033[0m\n", len(built.Changed))
 			}
 			diffByFile := review.BuildDiffByFile(built.Changed, built.Diff)
-			r := review.ParallelReview(ctx, review.ParallelConfig{
+			r, perr := review.ParallelReview(ctx, review.ParallelConfig{
 				Client:      client,
 				ModelID:     activeModel,
 				MaxTokens:   *maxTokens,
 				Concurrency: 4,
 			}, built.Changed, diffByFile, scope.Focus)
+			if perr != nil {
+				// All file reviews failed: do not let an empty report be read as a
+				// clean changeset (false negative in a CI gate). Surface and fail.
+				fatal(fmt.Errorf("parallel review: %w", perr))
+			}
 
 			if built.Diff != "" && !*quiet {
 				fmt.Fprintf(os.Stderr, "  \033[2m→ running review filter...\033[0m\n")
