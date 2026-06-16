@@ -93,7 +93,10 @@ func ParallelReview(ctx context.Context, cfg ParallelConfig, changed []contextmg
 	wg.Wait()
 
 	rep := Report{
-		Findings:      allFindings,
+		// Sort the merged findings deterministically: they arrive in
+		// nondeterministic goroutine-completion order, which would otherwise make
+		// --json output differ run-to-run for the same changeset.
+		Findings:      sortFindingsStable(allFindings),
 		ReviewedScope: reviewedPaths(changed),
 	}
 	if attempted > 0 && failed == attempted {

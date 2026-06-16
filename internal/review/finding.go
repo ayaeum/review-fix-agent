@@ -66,19 +66,30 @@ func ToPayload(r Report) (map[string]any, error) {
 
 var severityRank = map[string]int{"high": 0, "medium": 1, "low": 2, "info": 3}
 
-// Sorted returns findings ordered by severity (high first) then file/line.
+// Sorted returns findings ordered by severity (high first) then file/line/title.
 func (r Report) Sorted() []Finding {
-	out := make([]Finding, len(r.Findings))
-	copy(out, r.Findings)
+	return sortFindingsStable(r.Findings)
+}
+
+// sortFindingsStable returns a deterministically ordered copy of findings:
+// severity (high first), then file, line, and title. The title tiebreak makes
+// the order fully reproducible — important for parallel review, where findings
+// are merged in nondeterministic goroutine-completion order, so --json output is
+// stable run-to-run.
+func sortFindingsStable(in []Finding) []Finding {
+	out := make([]Finding, len(in))
+	copy(out, in)
 	sort.SliceStable(out, func(i, j int) bool {
-		ri, rj := severityRank[out[i].Severity], severityRank[out[j].Severity]
-		if ri != rj {
+		if ri, rj := severityRank[out[i].Severity], severityRank[out[j].Severity]; ri != rj {
 			return ri < rj
 		}
 		if out[i].File != out[j].File {
 			return out[i].File < out[j].File
 		}
-		return out[i].Line < out[j].Line
+		if out[i].Line != out[j].Line {
+			return out[i].Line < out[j].Line
+		}
+		return out[i].Title < out[j].Title
 	})
 	return out
 }
