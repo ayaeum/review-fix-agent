@@ -36,7 +36,7 @@ func NewAnthropic(apiKey, baseURL, model string) *Anthropic {
 		BaseURL:    strings.TrimRight(baseURL, "/"),
 		Version:    "2023-06-01",
 		Model:      model,
-		HTTPClient: &http.Client{},
+		HTTPClient: newStreamingHTTPClient(),
 	}
 }
 

@@ -6,9 +6,33 @@ package model
 
 import (
 	"context"
+	"net"
+	"net/http"
+	"time"
 
 	"github.com/review-fix-agent/rfa/internal/message"
 )
+
+// newStreamingHTTPClient returns an *http.Client tuned for streaming SSE. It
+// bounds connection setup, TLS handshake, and time-to-first-byte so a hung or
+// unreachable gateway fails fast instead of blocking scanner.Scan() forever.
+// Crucially it sets no overall Timeout, which would otherwise abort a legitimate
+// long-running stream mid-flight. Per-request cancellation still flows through
+// the context passed to Stream.
+func newStreamingHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2:     true,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 120 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+		},
+	}
+}
 
 // ToolSchema is the provider-facing description of a tool.
 type ToolSchema struct {

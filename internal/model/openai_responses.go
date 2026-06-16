@@ -48,7 +48,7 @@ func NewOpenAIResponses(apiKey, baseURL, model string) *OpenAIResponses {
 		APIKey:     apiKey,
 		BaseURL:    baseURL,
 		Model:      model,
-		HTTPClient: &http.Client{},
+		HTTPClient: newStreamingHTTPClient(),
 	}
 }
 
