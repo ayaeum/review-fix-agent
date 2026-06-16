@@ -62,6 +62,11 @@ func (GrepTool) Call(_ context.Context, input map[string]any, tc *tool.Context) 
 	}
 	suffix, _ := input["glob"].(string)
 	max := intInput(input, "max_results", 200)
+	if max <= 0 {
+		// A non-positive cap would report "no matches" for any pattern, which a
+		// reviewer could misread as "this code does not exist". Use the default.
+		max = 200
+	}
 
 	var matches []string
 	count := 0

@@ -64,6 +64,11 @@ func (ReadTool) Call(_ context.Context, input map[string]any, tc *tool.Context) 
 		offset = 1
 	}
 	limit := intInput(input, "limit", 2000)
+	if limit <= 0 {
+		// A non-positive limit would silently return "no lines", misrepresenting a
+		// non-empty file. Fall back to the default window.
+		limit = 2000
+	}
 
 	lines := strings.Split(string(data), "\n")
 	var b strings.Builder
