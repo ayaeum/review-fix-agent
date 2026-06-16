@@ -83,5 +83,7 @@ func (GetFileDiffTool) Call(_ context.Context, input map[string]any, tc *tool.Co
 	if result == "" {
 		return tool.Result{Text: "no matching files found in diff"}, nil
 	}
-	return tool.Result{Text: result}, nil
+	// Cap like every other tool result: a request for many/large files would
+	// otherwise return an unbounded blob and flood the model context.
+	return tool.Result{Text: truncate(result)}, nil
 }
