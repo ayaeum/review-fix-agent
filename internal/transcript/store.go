@@ -12,10 +12,11 @@ import (
 
 // Store appends newline-delimited JSON entries to a per-session file.
 type Store struct {
-	mu   sync.Mutex
-	f    *os.File
-	enc  *json.Encoder
-	path string
+	mu     sync.Mutex
+	f      *os.File
+	enc    *json.Encoder
+	path   string
+	closed bool
 }
 
 // Entry is one transcript record.
@@ -46,20 +47,31 @@ func (s *Store) Path() string {
 	return s.path
 }
 
-// Append writes one entry. Safe for concurrent use. Nil store is a no-op.
+// Append writes one entry. Safe for concurrent use, and a no-op after Close or
+// on a nil store.
 func (s *Store) Append(typ string, payload any) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
 	_ = s.enc.Encode(Entry{TS: time.Now().UTC().Format(time.RFC3339Nano), Type: typ, Payload: payload})
 }
 
-// Close flushes and closes the underlying file. Nil store is a no-op.
+// Close flushes and closes the underlying file. It takes the same lock as Append
+// so it is safe to call concurrently, and is idempotent. Nil store is a no-op.
 func (s *Store) Close() error {
-	if s == nil || s.f == nil {
+	if s == nil {
 		return nil
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.f == nil {
+		return nil
+	}
+	s.closed = true
 	return s.f.Close()
 }
