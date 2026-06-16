@@ -39,6 +39,10 @@ type Loop struct {
 // emit its structured report before the loop gives up (prevents runaways).
 const maxFinalizerReminders = 3
 
+// deadlineNudgeTurns is the number of remaining turns at which the loop injects
+// a hidden message urging the model to stop exploring and submit its report.
+const deadlineNudgeTurns = 5
+
 // ErrMissingFinalizer is returned when the loop stops without the required
 // structured report being recorded in the sink.
 var ErrMissingFinalizer = errors.New("agent finished without submitting the required report")
@@ -62,6 +66,17 @@ func (l *Loop) Run(ctx context.Context, initial []message.Message, emit func(Eve
 		case <-ctx.Done():
 			return state, ctx.Err()
 		default:
+		}
+
+		// Inject a deadline nudge when approaching max turns so the model
+		// converges on its final report instead of continuing to explore.
+		if remaining := maxTurns - turn; remaining == deadlineNudgeTurns && !l.hasRequiredFinalizer() {
+			nudge := message.NewUserText(fmt.Sprintf(
+				"⚠ 你还剩 %d 轮就会被强制停止。请立即停止探索，根据已有信息汇总审查结果并调用对应的 report 工具提交最终报告。"+
+					"未提交报告将导致本次审查失败。", remaining))
+			state = append(state, nudge)
+			l.Transcript.Append("message", nudge)
+			emitEvent(emit, Event{Kind: EvNotice, Text: fmt.Sprintf("deadline nudge: %d turns remaining", remaining)})
 		}
 
 		state = l.maybeCompress(ctx, state, emit)
