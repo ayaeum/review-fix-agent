@@ -34,7 +34,7 @@ func (s *Server) Handler() http.Handler {
 
 	sub, err := fs.Sub(webFS, "web")
 	if err == nil {
-		mux.Handle("GET /", http.FileServer(http.FS(sub)))
+		mux.Handle("/", http.FileServer(http.FS(sub)))
 	}
 	return mux
 }
