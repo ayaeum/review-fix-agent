@@ -58,14 +58,39 @@ func (s *Server) handleList(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, metas)
 }
 
+// resolveSessionFile finds the .jsonl file for a session ID, searching both
+// the top-level dir and project subdirectories.
+func (s *Server) resolveSessionFile(id string) (string, bool) {
+	if strings.Contains(id, "..") || strings.ContainsAny(id, "/\\") {
+		return "", false
+	}
+	base := filepath.Base(id) + ".jsonl"
+	// Top-level.
+	if f := filepath.Join(s.Dir, base); fileExists(f) {
+		return f, true
+	}
+	// Search subdirectories.
+	entries, _ := os.ReadDir(s.Dir)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if f := filepath.Join(s.Dir, e.Name(), base); fileExists(f) {
+			return f, true
+		}
+	}
+	return "", false
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if strings.ContainsAny(id, "/\\") || strings.Contains(id, "..") {
-		writeErr(w, http.StatusBadRequest, "invalid session id")
-		return
-	}
-	file := filepath.Join(s.Dir, filepath.Base(id)+".jsonl")
-	if _, err := os.Stat(file); err != nil {
+	file, ok := s.resolveSessionFile(id)
+	if !ok {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
 	}
@@ -73,6 +98,12 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// Derive project from subdirectory relative to s.Dir.
+	if rel, err := filepath.Rel(s.Dir, file); err == nil {
+		if dir := filepath.Dir(rel); dir != "." {
+			detail.Meta.Project = dir
+		}
 	}
 	writeJSON(w, detail)
 }
@@ -83,11 +114,11 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 // or the client disconnects.
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if strings.ContainsAny(id, "/\\") || strings.Contains(id, "..") {
-		writeErr(w, http.StatusBadRequest, "invalid session id")
+	file, ok := s.resolveSessionFile(id)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "session not found")
 		return
 	}
-	file := filepath.Join(s.Dir, filepath.Base(id)+".jsonl")
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -122,11 +153,22 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.TrimSpace(line) == "" {
+		// Only consume newline-terminated lines. The agent writes this file
+		// concurrently, so the final line may be a partial write with no trailing
+		// newline; emitting it (and advancing past it) would ship truncated JSON
+		// and lose the remainder. ReadString also has no fixed line-length cap, so
+		// large tool_result records don't break the stream.
+		reader := bufio.NewReader(f)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				// Incomplete trailing line: leave offset before it so the next
+				// tick re-reads it once fully flushed.
+				break
+			}
+			offset += int64(len(line))
+			line = strings.TrimSpace(line)
+			if line == "" {
 				continue
 			}
 			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, line)
@@ -135,8 +177,6 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 				ended = true
 			}
 		}
-		pos, _ := f.Seek(0, io.SeekCurrent)
-		offset = pos
 		flusher.Flush()
 	}
 
