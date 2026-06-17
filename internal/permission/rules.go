@@ -41,7 +41,11 @@ var readOnlyPrefixes = []string{
 // destructivePatterns match irreversible or outward-facing actions. These are
 // denied outright; the model must surface them as residual risk instead.
 var destructivePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(^|[;&|]\s*)rm\s+(-[a-zA-Z]*\s+)*`),
+	// rm at command position, with an optional path prefix so an absolute/relative
+	// invocation like /bin/rm -rf still classifies as destructive. The path prefix
+	// must sit at command position (start or after an operator), so rm appearing as
+	// an argument (e.g. find -exec rm {}) is intentionally NOT matched here.
+	regexp.MustCompile(`(^|[;&|]\s*)(\S*/)?rm\s+(-[a-zA-Z]*\s+)*`),
 	regexp.MustCompile(`\bgit\s+push\b`),
 	regexp.MustCompile(`\bgit\s+commit\b`),
 	regexp.MustCompile(`\bgit\s+reset\s+--hard\b`),

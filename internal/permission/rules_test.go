@@ -18,6 +18,9 @@ func TestClassifyCommand(t *testing.T) {
 		{"gofmt -w .", ClassMutating},
 		{"echo hi > out.txt", ClassMutating},
 		{"rm -rf build", ClassDestructive},
+		{"/bin/rm -rf /", ClassDestructive},          // absolute-path invocation must not bypass
+		{"/usr/bin/rm -rf data", ClassDestructive},   // ditto
+		{"echo ok && /bin/rm -rf x", ClassDestructive},
 		{"git push origin main", ClassDestructive},
 		{"git commit -m x", ClassDestructive},
 		{"sudo make install", ClassDestructive},
