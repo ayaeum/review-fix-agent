@@ -270,6 +270,15 @@ func convertMessages(msgs []message.Message) []map[string]any {
 		if len(content) == 0 {
 			continue
 		}
+		// Anthropic requires roles to strictly alternate. The loop can legitimately
+		// produce consecutive same-role messages (e.g. a deadline-nudge user message
+		// appended right after a tool_result user message), so merge adjacent
+		// same-role content rather than emitting a second message the API rejects.
+		if n := len(out); n > 0 && out[n-1]["role"] == string(m.Role) {
+			prev := out[n-1]["content"].([]map[string]any)
+			out[n-1]["content"] = append(prev, content...)
+			continue
+		}
 		out = append(out, map[string]any{"role": string(m.Role), "content": content})
 	}
 	return out

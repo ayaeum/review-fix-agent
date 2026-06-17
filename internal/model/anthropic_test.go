@@ -3,7 +3,46 @@ package model
 import (
 	"strings"
 	"testing"
+
+	"github.com/review-fix-agent/rfa/internal/message"
 )
+
+// TestConvertMessagesMergesConsecutiveSameRole verifies the Anthropic adapter
+// merges adjacent same-role messages (Anthropic requires alternating roles).
+// The loop can append a deadline-nudge user message right after a tool_result
+// user message; without merging, the API would reject the request.
+func TestConvertMessagesMergesConsecutiveSameRole(t *testing.T) {
+	msgs := []message.Message{
+		message.NewUserText("initial"),
+		{Role: message.RoleAssistant, Content: []message.Block{message.ToolUse("t1", "read_file", map[string]any{"path": "a"})}},
+		{Role: message.RoleUser, Content: []message.Block{message.ToolResult("t1", "contents", false)}},
+		message.NewUserText("⚠ deadline nudge"), // consecutive user message
+	}
+	out := convertMessages(msgs)
+
+	// Expect 3 wire messages: user, assistant, user(merged tool_result + nudge).
+	if len(out) != 3 {
+		t.Fatalf("expected 3 merged messages, got %d: %+v", len(out), out)
+	}
+	roles := []string{out[0]["role"].(string), out[1]["role"].(string), out[2]["role"].(string)}
+	if roles[0] != "user" || roles[1] != "assistant" || roles[2] != "user" {
+		t.Fatalf("roles = %v, want user/assistant/user", roles)
+	}
+	// No two adjacent wire messages share a role.
+	for i := 1; i < len(out); i++ {
+		if out[i]["role"] == out[i-1]["role"] {
+			t.Fatalf("adjacent messages share role %q", out[i]["role"])
+		}
+	}
+	// The merged final user message must contain BOTH the tool_result and the nudge text.
+	last := out[2]["content"].([]map[string]any)
+	if len(last) != 2 {
+		t.Fatalf("merged user content = %d blocks, want 2: %+v", len(last), last)
+	}
+	if last[0]["type"] != "tool_result" || last[1]["type"] != "text" {
+		t.Errorf("merged content types = %v/%v, want tool_result/text", last[0]["type"], last[1]["type"])
+	}
+}
 
 // A representative Anthropic SSE stream: message_start carries input tokens and
 // an initial output_tokens of 1, then a text block, then message_delta carries
