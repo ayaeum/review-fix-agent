@@ -179,3 +179,29 @@ func TestServerStreamNotTerminatedByContent(t *testing.T) {
 		t.Errorf("stream should still complete at the real session_end:\n%s", body)
 	}
 }
+
+// TestServerStreamHonorsLastEventID verifies a reconnect with Last-Event-ID only
+// receives records newer than that id (no duplicate replay).
+func TestServerStreamHonorsLastEventID(t *testing.T) {
+	ts, id := newTestServer(t) // sampleSession has 4 records (ids 0..3)
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/sessions/"+id+"/stream", nil)
+	req.Header.Set("Last-Event-ID", "1") // already saw ids 0 and 1
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	body := string(b)
+
+	if strings.Contains(body, "id: 0\n") || strings.Contains(body, "id: 1\n") {
+		t.Errorf("already-delivered records 0/1 were replayed:\n%s", body)
+	}
+	if !strings.Contains(body, "id: 2\n") || !strings.Contains(body, "id: 3\n") {
+		t.Errorf("newer records 2/3 missing:\n%s", body)
+	}
+	if !strings.Contains(body, "event: done") {
+		t.Errorf("stream should still complete:\n%s", body)
+	}
+}

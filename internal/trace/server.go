@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -136,6 +137,16 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Honor the EventSource reconnect contract: after a dropped connection the
+	// browser resends Last-Event-ID, so skip records already delivered rather than
+	// replaying the whole transcript (which would duplicate events in the view).
+	lastEventID := -1
+	if v := r.Header.Get("Last-Event-ID"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			lastEventID = n
+		}
+	}
+
 	var offset int64
 	seq := 0
 	ended := false
@@ -171,7 +182,9 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			if line == "" {
 				continue
 			}
-			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, line)
+			if seq > lastEventID {
+				fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, line)
+			}
 			seq++
 			// Detect end-of-session by the record's actual type, not a substring of
 			// the whole line — message content can legitimately contain the text
