@@ -221,3 +221,38 @@ func hasErrorResultFor(msgs []message.Message, id string) bool {
 	}
 	return false
 }
+
+// TestSessionTranscriptFilenamesAreUnique runs two sessions sharing one
+// transcript dir back-to-back and asserts they do not collide onto a single
+// file (sub-second precision in the session id).
+func TestSessionTranscriptFilenamesAreUnique(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func() {
+		client := &model.Mock{Responder: func(_ model.Request, turn int) message.Message {
+			if turn == 0 {
+				return message.Message{Role: message.RoleAssistant, Content: []message.Block{
+					message.ToolUse("t1", "report_findings", findingsPayload()),
+				}}
+			}
+			return message.NewAssistantText("done")
+		}}
+		sess := NewSession(client, SessionConfig{
+			Cwd: cwd, Mode: permission.ModeReview, MaxTurns: 5,
+			TranscriptDir: dir, Scope: contextmgr.Scope{Mode: permission.ModeReview},
+		})
+		if _, err := sess.Run(context.Background(), nil); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	}
+	run()
+	run()
+
+	files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if len(files) != 2 {
+		t.Fatalf("expected 2 distinct transcript files, got %d: %v", len(files), files)
+	}
+}

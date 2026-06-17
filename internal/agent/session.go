@@ -89,7 +89,10 @@ func (s *Session) Run(ctx context.Context, emit func(Event)) (Result, error) {
 			dir = filepath.Join(cfg.Cwd, ".rfa", "sessions")
 		}
 	}
-	sessionID := fmt.Sprintf("%s-%s", cfg.Mode, time.Now().Format("20060102-150405"))
+	// Microsecond precision avoids two sessions started in the same second (CI
+	// matrices, scripted/back-to-back runs) sharing a filename and interleaving
+	// their records into one O_APPEND transcript.
+	sessionID := fmt.Sprintf("%s-%s", cfg.Mode, time.Now().Format("20060102-150405.000000"))
 	ts, err := transcript.New(dir, sessionID)
 	if err != nil {
 		return Result{}, fmt.Errorf("open transcript: %w", err)
