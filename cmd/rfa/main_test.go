@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,6 +91,35 @@ func TestReviewMockEndToEnd(t *testing.T) {
 	matches, _ := filepath.Glob(filepath.Join(repo, ".rfa", "sessions", "*.jsonl"))
 	if len(matches) == 0 {
 		t.Errorf("expected a transcript under %s/.rfa/sessions, found none\noutput:\n%s", repo, got)
+	}
+}
+
+// TestReviewJSONStdoutNotPollutedByStreaming verifies --json keeps streamed
+// assistant text off stdout (so stdout is consumable as JSON), routing narration
+// away from it. Without the fix, the mock's streamed text landed on stdout.
+func TestReviewJSONStdoutNotPollutedByStreaming(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a binary; skipped in -short")
+	}
+	bin := buildRFA(t)
+	repo := newGitRepo(t)
+	mustWrite(t, filepath.Join(repo, "a.go"), "package main\nfunc main(){}\n")
+	git(t, repo, "add", "-A")
+	git(t, repo, "commit", "-qm", "base")
+	mustWrite(t, filepath.Join(repo, "a.go"), "package main\nfunc main(){ _ = 1 }\n")
+
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(bin, "review", "--json", "--max-turns", "4")
+	cmd.Dir = repo
+	cmd.Env = mockEnv()
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	_ = cmd.Run()
+
+	// The mock streams this narration as assistant text; with --json it must not
+	// reach stdout (it may appear on stderr).
+	if strings.Contains(stdout.String(), "no further scripted turns") {
+		t.Errorf("streamed assistant text leaked into --json stdout:\n%s", stdout.String())
 	}
 }
 

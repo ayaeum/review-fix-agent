@@ -180,7 +180,10 @@ func main() {
 		Scope:       scope,
 	})
 
-	emit := makeEmitter(*quiet)
+	// In --json mode, suppress streamed assistant text (which makeEmitter prints
+	// to stdout) so stdout stays pure JSON for machine consumption. Tool progress
+	// already goes to stderr; errors/denials still surface there.
+	emit := makeEmitter(*quiet || *jsonOut)
 	result, runErr := sess.Run(ctx, emit)
 	if !*quiet {
 		fmt.Fprintln(os.Stderr)
@@ -361,7 +364,10 @@ func interactiveAsker(autoYes bool) permission.Asker {
 
 // printReport renders the structured report (Markdown by default, JSON on flag).
 func printReport(mode permission.Mode, result agent.Result, asJSON bool) {
-	fmt.Println()
+	if !asJSON {
+		// Visual separation in human output only; JSON stdout must stay pure.
+		fmt.Println()
+	}
 	switch mode {
 	case permission.ModeReview:
 		if result.Findings == nil {
