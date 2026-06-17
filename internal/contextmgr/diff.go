@@ -146,13 +146,16 @@ func parseStart(s string) int {
 // (three-dot, i.e. since the merge-base); otherwise it shows uncommitted changes
 // (including staged) against HEAD.
 func RunGitDiff(ctx context.Context, cwd, base, commit string) (string, error) {
+	// --no-ext-diff defeats any user-configured external diff driver
+	// ([diff] external = ...), which would otherwise emit non-unified output that
+	// ParseUnifiedDiff cannot read and that the model would see as garbage.
 	var args []string
 	if commit != "" {
 		args = []string{"show", "--format=", "--no-ext-diff", "--no-color", commit, "--"}
 	} else if base != "" {
-		args = []string{"diff", "--no-color", base + "...", "--"}
+		args = []string{"diff", "--no-ext-diff", "--no-color", base + "...", "--"}
 	} else {
-		args = []string{"diff", "--no-color", "HEAD", "--"}
+		args = []string{"diff", "--no-ext-diff", "--no-color", "HEAD", "--"}
 	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = cwd
@@ -167,7 +170,7 @@ func RunGitDiff(ctx context.Context, cwd, base, commit string) (string, error) {
 	if commit != "" || base != "" {
 		return string(out), err
 	}
-	fb := exec.CommandContext(ctx, "git", "diff", "--no-color")
+	fb := exec.CommandContext(ctx, "git", "diff", "--no-ext-diff", "--no-color")
 	fb.Dir = cwd
 	if out2, err2 := fb.CombinedOutput(); err2 == nil {
 		return string(out2), nil
