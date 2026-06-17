@@ -50,16 +50,19 @@ func (m *Manager) Build(ctx context.Context, scope Scope) (Built, error) {
 	changed := ParseUnifiedDiff(diff)
 	rules := LoadRuleFiles(ctx, m.Cwd)
 
+	// Resolve prompts with any per-project override from <cwd>/.rfa/prompts.json.
+	prompts := LoadProjectPrompts(m.Cwd)
+
 	var sys string
 	switch scope.Mode {
 	case permission.ModeFix:
-		sys = systemPromptFix()
+		sys = prompts.SystemPromptFix
 	default:
-		sys = systemPromptReview()
+		sys = prompts.SystemPromptReview
 	}
 	sys += "\n\n" + m.systemState(ctx)
 
-	user := m.initialUser(scope, diff, changed, rules)
+	user := m.initialUser(scope, diff, changed, rules, prompts)
 	return Built{System: sys, InitialUser: user, Diff: diff, Changed: changed}, nil
 }
 
@@ -75,7 +78,7 @@ func (m *Manager) systemState(ctx context.Context) string {
 }
 
 // initialUser composes the first user message: scope + changed files + diff + rules.
-func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, rules []RuleFile) string {
+func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, rules []RuleFile, prompts promptSet) string {
 	var b strings.Builder
 
 	if scope.Mode == permission.ModeFix {
@@ -140,7 +143,7 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 
 	b.WriteString("\n## 任务步骤\n")
 	if scope.Mode == permission.ModeFix {
-		b.WriteString(fixInstructions())
+		b.WriteString(prompts.FixInstructions)
 		if hints := verify.Suggest(m.Cwd, changedPaths(changed)...); len(hints) > 0 {
 			b.WriteString("\n\n## 检测到的可用验证命令\n")
 			for _, h := range hints {
@@ -148,7 +151,7 @@ func (m *Manager) initialUser(scope Scope, diff string, changed []ChangedFile, r
 			}
 		}
 	} else {
-		b.WriteString(reviewInstructions())
+		b.WriteString(prompts.ReviewInstructions)
 	}
 	return b.String()
 }

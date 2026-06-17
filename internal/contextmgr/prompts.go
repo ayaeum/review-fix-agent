@@ -59,9 +59,3 @@ func LoadProjectPrompts(cwd string) promptSet {
 	}
 	return base
 }
-
-// Accessors used by context.go — resolve via the loaded set.
-func systemPromptReview() string { return loadPrompts().SystemPromptReview }
-func systemPromptFix() string    { return loadPrompts().SystemPromptFix }
-func reviewInstructions() string { return loadPrompts().ReviewInstructions }
-func fixInstructions() string    { return loadPrompts().FixInstructions }
