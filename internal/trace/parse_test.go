@@ -81,3 +81,37 @@ func TestListSessionsSortedAndRunning(t *testing.T) {
 		t.Errorf("second should be the finished review: %+v", metas[1])
 	}
 }
+
+// TestParseSessionToleratesCorruptLine verifies a single malformed line in the
+// middle of a transcript is skipped rather than aborting the whole parse.
+func TestParseSessionToleratesCorruptLine(t *testing.T) {
+	dir := t.TempDir()
+	transcript := `{"ts":"2026-06-08T10:00:00.000Z","type":"session_start","payload":{"mode":"fix","model":"m","provider":"p"}}
+{ this is not valid json }
+{"ts":"2026-06-08T10:00:01.300Z","type":"message","payload":{"role":"assistant","content":[{"type":"tool_use","tool_use_id":"t1","tool_name":"read_file"}]}}
+{"ts":"2026-06-08T10:00:03.000Z","type":"session_end","payload":{"has_fix":true}}
+`
+	path := filepath.Join(dir, "fix-20260608-100000.jsonl")
+	if err := os.WriteFile(path, []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := ParseSession(path)
+	if err != nil {
+		t.Fatalf("corrupt line should not abort parse: %v", err)
+	}
+	if d.Meta.Mode != "fix" {
+		t.Errorf("session_start before the bad line should still parse: %+v", d.Meta)
+	}
+	if d.Meta.Running {
+		t.Error("session_end after the bad line should still be seen")
+	}
+	if d.Meta.ToolCalls != 1 {
+		t.Errorf("tool_use after the bad line should be counted: %d", d.Meta.ToolCalls)
+	}
+	// The corrupt line must not appear as an entry.
+	for _, e := range d.Entries {
+		if e.Type == "" {
+			t.Errorf("a corrupt line leaked into entries: %+v", e)
+		}
+	}
+}
