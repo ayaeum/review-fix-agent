@@ -75,6 +75,47 @@ func TestAggregateResponsesSSE(t *testing.T) {
 	}
 }
 
+// TestResponsesTextDeltaFallback covers gateways that stream output_text deltas
+// but never send the matching output_item.done: the assistant text must still be
+// recovered into the returned message.
+func TestResponsesTextDeltaFallback(t *testing.T) {
+	sse := `data: {"type":"response.output_text.delta","output_index":0,"delta":"Hel"}
+
+data: {"type":"response.output_text.delta","output_index":0,"delta":"lo"}
+
+data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":2}}}
+
+`
+	msg, _, err := aggregateResponsesSSE(strings.NewReader(sse), nil)
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	if msg.Text() != "Hello" {
+		t.Errorf("recovered text = %q, want %q", msg.Text(), "Hello")
+	}
+}
+
+// TestResponsesNoDoubleCountText ensures that when output_item.done IS present,
+// the delta fallback does not duplicate the text.
+func TestResponsesNoDoubleCountText(t *testing.T) {
+	msg, _, err := aggregateResponsesSSE(strings.NewReader(responsesSSE), nil)
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	text := 0
+	for _, b := range msg.Content {
+		if b.Type == message.BlockText {
+			text++
+			if b.Text != "Hello world" {
+				t.Errorf("text block = %q, want 'Hello world'", b.Text)
+			}
+		}
+	}
+	if text != 1 {
+		t.Errorf("expected exactly 1 text block, got %d", text)
+	}
+}
+
 func TestResponsesFailedEvent(t *testing.T) {
 	sse := `data: {"type":"response.failed","response":{"error":{"message":"model overloaded"}}}` + "\n"
 	_, _, err := aggregateResponsesSSE(strings.NewReader(sse), nil)

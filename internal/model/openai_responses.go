@@ -128,6 +128,11 @@ func (o *OpenAIResponses) buildBody(req Request) map[string]any {
 // while deltas drive the onEvent callback for streaming UI.
 func aggregateResponsesSSE(r io.Reader, onEvent func(StreamEvent)) (message.Message, message.Usage, error) {
 	blocks := map[int]message.Block{}
+	// textDeltas accumulates streamed output_text per output index as a fallback:
+	// some OpenAI-compatible gateways stream text deltas but never send the
+	// matching output_item.done (or send it with empty content), which would
+	// otherwise drop the assistant's text from the returned message.
+	textDeltas := map[int]*strings.Builder{}
 	var usage message.Usage
 
 	scanner := bufio.NewScanner(r)
@@ -148,6 +153,14 @@ func aggregateResponsesSSE(r io.Reader, onEvent func(StreamEvent)) (message.Mess
 		}
 		switch evt.Type {
 		case "response.output_text.delta":
+			if evt.Delta != "" {
+				b := textDeltas[evt.OutputIndex]
+				if b == nil {
+					b = &strings.Builder{}
+					textDeltas[evt.OutputIndex] = b
+				}
+				b.WriteString(evt.Delta)
+			}
 			if onEvent != nil {
 				onEvent(StreamEvent{Kind: StreamText, Text: evt.Delta})
 			}
@@ -193,6 +206,17 @@ func aggregateResponsesSSE(r io.Reader, onEvent func(StreamEvent)) (message.Mess
 	}
 	if err := scanner.Err(); err != nil {
 		return message.Message{}, usage, fmt.Errorf("read stream: %w", err)
+	}
+
+	// Recover text for any index that streamed deltas but produced no block from
+	// output_item.done (gateways that omit the completed item).
+	for i, buf := range textDeltas {
+		if _, ok := blocks[i]; ok {
+			continue
+		}
+		if strings.TrimSpace(buf.String()) != "" {
+			blocks[i] = message.Block{Type: message.BlockText, Text: buf.String()}
+		}
 	}
 
 	msg := message.Message{Role: message.RoleAssistant}
