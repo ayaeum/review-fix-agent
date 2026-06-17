@@ -85,3 +85,12 @@ func TestEditDetectsStaleRead(t *testing.T) {
 		t.Error("editing a file changed on disk since read should fail")
 	}
 }
+
+func TestEditRejectsEmptyOldString(t *testing.T) {
+	err := EditTool{}.Validate(map[string]any{
+		"path": "a.go", "old_string": "", "new_string": "x",
+	})
+	if err == nil {
+		t.Fatal("empty old_string must be rejected (would corrupt the file)")
+	}
+}

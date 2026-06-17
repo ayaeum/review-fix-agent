@@ -45,6 +45,11 @@ func (EditTool) Validate(input map[string]any) error {
 	}
 	oldS, _ := strInput(input, "old_string")
 	newS, _ := strInput(input, "new_string")
+	if oldS == "" {
+		// strings.Count(s, "") is len+1 and ReplaceAll(s, "", x) inserts x between
+		// every character — an empty old_string would corrupt the file, so reject it.
+		return fmt.Errorf("old_string must not be empty")
+	}
 	if oldS == newS {
 		return fmt.Errorf("old_string and new_string are identical")
 	}
