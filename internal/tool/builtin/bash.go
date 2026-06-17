@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/review-fix-agent/rfa/internal/permission"
@@ -71,6 +72,19 @@ func (BashTool) Call(ctx context.Context, input map[string]any, tc *tool.Context
 
 	c := exec.CommandContext(runCtx, "sh", "-c", cmd)
 	c.Dir = tc.Cwd
+	// Run the command in its own process group so a timeout can kill the whole
+	// tree. The default CommandContext cancel only SIGKILLs the direct child
+	// (sh), orphaning descendants like `go test` and the compiler it spawns.
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	c.Cancel = func() error {
+		if c.Process != nil {
+			// Negative pid = the process group whose pgid is the child's pid.
+			_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+	// Bound how long we wait for the group to die after cancellation.
+	c.WaitDelay = 5 * time.Second
 	out, err := c.CombinedOutput()
 
 	var b strings.Builder
