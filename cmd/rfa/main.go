@@ -70,6 +70,16 @@ func main() {
 	parallel := fs.Bool("parallel", false, "per-file parallel review (review mode, large changesets)")
 	_ = fs.Parse(os.Args[2:])
 
+	// The OpenAI Responses max_output_tokens parameter is opt-in (some gateways
+	// reject it), so only forward --max-tokens to that provider when the user set
+	// it explicitly; otherwise the default behavior (omit it) is unchanged.
+	explicitMaxTokens := 0
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "max-tokens" {
+			explicitMaxTokens = *maxTokens
+		}
+	})
+
 	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if mode == permission.ModeFix && task == "" {
 		fmt.Fprintln(os.Stderr, "fix requires an issue description: rfa fix \"config nil deref crashes startup\"")
@@ -107,7 +117,7 @@ func main() {
 		scope.Focus = task
 	}
 
-	client, activeModel, err := buildClient(*provider, *modelID)
+	client, activeModel, err := buildClient(*provider, *modelID, explicitMaxTokens)
 	if err != nil {
 		fatal(err)
 	}
@@ -261,7 +271,7 @@ const (
 // buildClient selects the model provider from flags/environment.
 // buildClient returns the provider client and the resolved model id (so the
 // transcript/trace records the real model, not the empty CLI default).
-func buildClient(provider, modelID string) (model.Client, string, error) {
+func buildClient(provider, modelID string, explicitMaxTokens int) (model.Client, string, error) {
 	if os.Getenv("RFA_MOCK") == "1" {
 		return &model.Mock{}, "mock", nil
 	}
@@ -286,6 +296,11 @@ func buildClient(provider, modelID string) (model.Client, string, error) {
 			if v, err := strconv.Atoi(n); err == nil {
 				c.MaxOutputTokens = v
 			}
+		}
+		// An explicit --max-tokens overrides the env opt-in so the documented flag
+		// actually takes effect for the default provider.
+		if explicitMaxTokens > 0 {
+			c.MaxOutputTokens = explicitMaxTokens
 		}
 		return c, c.Model, nil
 	case "anthropic":
