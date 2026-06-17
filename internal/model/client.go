@@ -6,12 +6,67 @@ package model
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/review-fix-agent/rfa/internal/message"
 )
+
+// transientStatus reports whether an HTTP status code is worth retrying: gateway
+// rate limits and transient upstream failures.
+func transientStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+// doWithRetry issues the request built by newReq, retrying on connection errors
+// and transient HTTP statuses with exponential backoff. It only retries before
+// any response body is consumed, so it is safe for the non-idempotent model
+// endpoints (a transient failure produced no output). Backoff respects ctx
+// cancellation. The caller owns the returned resp.Body.
+func doWithRetry(ctx context.Context, hc *http.Client, newReq func() (*http.Request, error)) (*http.Response, error) {
+	const maxAttempts = 4
+	backoff := 500 * time.Millisecond
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+		req, err := newReq()
+		if err != nil {
+			return nil, err
+		}
+		resp, err := hc.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if attempt < maxAttempts-1 && transientStatus(resp.StatusCode) {
+			// Drain a bounded prefix so the connection can be reused, then retry.
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8*1024))
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("transient HTTP %d", resp.StatusCode)
+			continue
+		}
+		return resp, nil
+	}
+	return nil, lastErr
+}
 
 // newStreamingHTTPClient returns an *http.Client tuned for streaming SSE. It
 // bounds connection setup, TLS handshake, and time-to-first-byte so a hung or

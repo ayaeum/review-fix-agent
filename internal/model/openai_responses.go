@@ -63,17 +63,18 @@ func (o *OpenAIResponses) Stream(ctx context.Context, req Request, onEvent func(
 		return message.Message{}, message.Usage{}, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.BaseURL+"/responses", bytes.NewReader(raw))
-	if err != nil {
-		return message.Message{}, message.Usage{}, err
-	}
-	httpReq.Header.Set("content-type", "application/json")
-	httpReq.Header.Set("accept", "text/event-stream")
-	if o.APIKey != "" {
-		httpReq.Header.Set("authorization", "Bearer "+o.APIKey)
-	}
-
-	resp, err := o.HTTPClient.Do(httpReq)
+	resp, err := doWithRetry(ctx, o.HTTPClient, func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.BaseURL+"/responses", bytes.NewReader(raw))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("content-type", "application/json")
+		httpReq.Header.Set("accept", "text/event-stream")
+		if o.APIKey != "" {
+			httpReq.Header.Set("authorization", "Bearer "+o.APIKey)
+		}
+		return httpReq, nil
+	})
 	if err != nil {
 		return message.Message{}, message.Usage{}, fmt.Errorf("request failed: %w", err)
 	}

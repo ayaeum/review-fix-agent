@@ -75,16 +75,17 @@ func (a *Anthropic) Stream(ctx context.Context, req Request, onEvent func(Stream
 		return message.Message{}, message.Usage{}, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.BaseURL+"/v1/messages", bytes.NewReader(raw))
-	if err != nil {
-		return message.Message{}, message.Usage{}, err
-	}
-	httpReq.Header.Set("content-type", "application/json")
-	httpReq.Header.Set("x-api-key", a.APIKey)
-	httpReq.Header.Set("anthropic-version", a.Version)
-	httpReq.Header.Set("accept", "text/event-stream")
-
-	resp, err := a.HTTPClient.Do(httpReq)
+	resp, err := doWithRetry(ctx, a.HTTPClient, func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.BaseURL+"/v1/messages", bytes.NewReader(raw))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("content-type", "application/json")
+		httpReq.Header.Set("x-api-key", a.APIKey)
+		httpReq.Header.Set("anthropic-version", a.Version)
+		httpReq.Header.Set("accept", "text/event-stream")
+		return httpReq, nil
+	})
 	if err != nil {
 		return message.Message{}, message.Usage{}, fmt.Errorf("request failed: %w", err)
 	}
