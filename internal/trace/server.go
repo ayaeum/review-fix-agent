@@ -173,7 +173,14 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 			}
 			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, line)
 			seq++
-			if strings.Contains(line, `"session_end"`) {
+			// Detect end-of-session by the record's actual type, not a substring of
+			// the whole line — message content can legitimately contain the text
+			// "session_end" (e.g. reviewing this very codebase), which must not
+			// terminate the live stream early.
+			var rec struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal([]byte(line), &rec) == nil && rec.Type == "session_end" {
 				ended = true
 			}
 		}

@@ -146,3 +146,36 @@ func TestServerServesUI(t *testing.T) {
 		t.Errorf("GET / did not serve HTML UI")
 	}
 }
+
+// TestServerStreamNotTerminatedByContent ensures a message whose content merely
+// contains the text "session_end" does not end the live stream early; only a
+// real session_end record does.
+func TestServerStreamNotTerminatedByContent(t *testing.T) {
+	dir := t.TempDir()
+	lines := []map[string]any{
+		{"ts": "2026-06-17T03:00:00Z", "type": "session_start", "payload": map[string]any{"mode": "review", "model": "m", "provider": "p"}},
+		// A message that mentions "session_end" in its text — must NOT end the stream.
+		{"ts": "2026-06-17T03:00:01Z", "type": "message", "payload": map[string]any{
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "text", "text": `the code checks for "session_end" here`}},
+		}},
+		{"ts": "2026-06-17T03:00:02Z", "type": "event", "payload": map[string]any{"kind": "tool_start", "tool": "read_file"}},
+		{"ts": "2026-06-17T03:00:03Z", "type": "session_end", "payload": map[string]any{"has_findings": true}},
+	}
+	writeSessionFile(t, dir, "review-20260617-030000", lines)
+	ts := httptest.NewServer(NewServer(dir).Handler())
+	t.Cleanup(ts.Close)
+
+	code, body := getBody(t, ts.URL+"/api/sessions/review-20260617-030000/stream")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d", code)
+	}
+	// The tool_start event comes AFTER the message that mentions session_end; if
+	// the stream had terminated early it would be missing.
+	if !strings.Contains(body, `"kind":"tool_start"`) {
+		t.Errorf("stream ended early — event after the 'session_end'-mentioning message is missing:\n%s", body)
+	}
+	if !strings.Contains(body, "event: done") {
+		t.Errorf("stream should still complete at the real session_end:\n%s", body)
+	}
+}
