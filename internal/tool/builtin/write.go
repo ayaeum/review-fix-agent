@@ -51,10 +51,16 @@ func (WriteTool) Call(_ context.Context, input map[string]any, tc *tool.Context)
 	content, _ := input["content"].(string)
 	abs := resolvePath(tc.Cwd, path)
 
-	if _, err := os.Stat(abs); err == nil {
-		// Existing file: require a prior read before overwrite.
-		if _, seen := tc.ReadState.Get(abs); !seen {
+	if fi, err := os.Stat(abs); err == nil && !fi.IsDir() {
+		// Existing file: require a prior read and detect external changes since it,
+		// matching edit_file's stance so a concurrent/external edit is not silently
+		// clobbered by content based on a stale read.
+		rec, seen := tc.ReadState.Get(abs)
+		if !seen {
 			return tool.Result{Text: fmt.Sprintf("%s exists; read it before overwriting", relTo(tc.Cwd, abs)), IsError: true}, nil
+		}
+		if cur, rerr := os.ReadFile(abs); rerr == nil && rec.Content != string(cur) {
+			return tool.Result{Text: fmt.Sprintf("%s changed on disk since it was last read; read it again before overwriting", relTo(tc.Cwd, abs)), IsError: true}, nil
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
