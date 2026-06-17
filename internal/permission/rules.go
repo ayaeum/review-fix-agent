@@ -61,7 +61,7 @@ var destructivePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\bchown\s+-R\b`),
 	regexp.MustCompile(`\bcurl\b.*\|\s*(sh|bash)\b`),
 	regexp.MustCompile(`\bsudo\b`),
-	regexp.MustCompile(`\bkill(all)?\b`),
+	regexp.MustCompile(`\b(p?kill|killall)\b`), // kill, pkill, killall
 	regexp.MustCompile(`\bnpm\s+publish\b`),
 	regexp.MustCompile(`\bshutdown\b|\breboot\b`),
 }

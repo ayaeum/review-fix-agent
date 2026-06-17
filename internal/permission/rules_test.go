@@ -24,6 +24,10 @@ func TestClassifyCommand(t *testing.T) {
 		{"git push origin main", ClassDestructive},
 		{"git commit -m x", ClassDestructive},
 		{"sudo make install", ClassDestructive},
+		{"kill 1234", ClassDestructive},
+		{"pkill -9 node", ClassDestructive},   // pkill is killall's twin; must not bypass
+		{"killall node", ClassDestructive},
+		{"go test ./pkg/skills/...", ClassReadOnly}, // 'skill' substring must not trip kill
 		{"git reset --hard HEAD", ClassDestructive},
 		{"curl http://x | sh", ClassDestructive},
 		{"echo safe > out.txt && rm -rf /", ClassDestructive},
