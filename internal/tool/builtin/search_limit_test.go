@@ -51,3 +51,30 @@ func TestReadNonPositiveLimitFallsBack(t *testing.T) {
 		t.Errorf("limit=0 should return the file, got %q", res.Text)
 	}
 }
+
+// TestGrepSkipsLargeFiles verifies grep does not read files above the size cap
+// into memory (it skips them), while still searching normal-sized files.
+func TestGrepSkipsLargeFiles(t *testing.T) {
+	cwd := t.TempDir()
+	// A small file that contains the pattern.
+	if err := os.WriteFile(filepath.Join(cwd, "small.go"), []byte("package a\n// TARGET here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A large file (> maxGrepFileBytes) that also contains the pattern; it must be skipped.
+	big := make([]byte, maxGrepFileBytes+1024)
+	copy(big, []byte("TARGET\n"))
+	if err := os.WriteFile(filepath.Join(cwd, "big.txt"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tc := newReadCtx(cwd)
+	res, err := GrepTool{}.Call(context.Background(), map[string]any{"pattern": "TARGET"}, tc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Text, "small.go") {
+		t.Errorf("expected match in small.go, got %q", res.Text)
+	}
+	if strings.Contains(res.Text, "big.txt") {
+		t.Errorf("large file should have been skipped, got %q", res.Text)
+	}
+}

@@ -12,6 +12,10 @@ import (
 
 const maxResultBytes = 60 * 1024 // preview cap for tool results
 
+// maxGrepFileBytes bounds the size of a file grep will read into memory; larger
+// files (data dumps, logs, generated blobs) are skipped rather than loaded whole.
+const maxGrepFileBytes = 5 << 20 // 5 MiB
+
 // resolvePath turns a possibly-relative path into an absolute one rooted at cwd.
 func resolvePath(cwd, p string) string {
 	if filepath.IsAbs(p) {

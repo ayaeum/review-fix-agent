@@ -86,6 +86,12 @@ func (GrepTool) Call(_ context.Context, input map[string]any, tc *tool.Context) 
 		if count >= max {
 			return filepath.SkipAll
 		}
+		// Skip very large files before reading: grep loads the whole file into
+		// memory, so an accidental multi-MB data/log file would waste RAM (or risk
+		// OOM) for content not worth line-grepping in a review.
+		if info, ierr := d.Info(); ierr == nil && info.Size() > maxGrepFileBytes {
+			return nil
+		}
 		data, err := os.ReadFile(path)
 		if err != nil || isProbablyBinary(data) {
 			return nil
