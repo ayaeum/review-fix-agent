@@ -97,3 +97,29 @@ func TestParseFileFindingsDefaultsFile(t *testing.T) {
 		t.Errorf("expected default.go, got %s", findings[0].File)
 	}
 }
+
+func TestParseFileFindingsProseWrapped(t *testing.T) {
+	// Model wrapped the JSON array in prose; findings must still be recovered.
+	text := "Sure! Here are the findings I found:\n" +
+		`[{"severity":"high","file":"x.go","line":3,"title":"bug","evidence":"e","impact":"i"}]` +
+		"\nLet me know if you need more."
+	findings := parseFileFindings(text, "x.go")
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding from prose-wrapped JSON, got %d", len(findings))
+	}
+	if findings[0].Severity != "high" || findings[0].Title != "bug" {
+		t.Errorf("finding = %+v", findings[0])
+	}
+}
+
+func TestExtractJSONArray(t *testing.T) {
+	if got := extractJSONArray("pre [1,2] post"); got != "[1,2]" {
+		t.Errorf("got %q", got)
+	}
+	if got := extractJSONArray("no brackets"); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+	if got := extractJSONArray("]backwards["); got != "" {
+		t.Errorf("expected empty for reversed brackets, got %q", got)
+	}
+}

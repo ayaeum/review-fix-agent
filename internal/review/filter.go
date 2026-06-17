@@ -110,6 +110,18 @@ func parseFilterIDs(raw string, total int) map[int]struct{} {
 	return result
 }
 
+// extractJSONArray returns the substring spanning the first '[' to the last ']'
+// (inclusive), or "" if a well-formed span is absent. It recovers a JSON array
+// that a model wrapped in surrounding prose.
+func extractJSONArray(s string) string {
+	start := strings.IndexByte(s, '[')
+	end := strings.LastIndexByte(s, ']')
+	if start < 0 || end <= start {
+		return ""
+	}
+	return s[start : end+1]
+}
+
 func stripJSONFences(s string) string {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "```") {

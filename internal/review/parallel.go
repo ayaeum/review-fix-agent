@@ -152,7 +152,15 @@ func parseFileFindings(text, filePath string) []Finding {
 		Confidence   string `json:"confidence"`
 	}
 	if err := json.Unmarshal([]byte(text), &raw); err != nil {
-		return nil
+		// Fall back to the bracketed array if the model wrapped it in prose
+		// ("Here are the findings: [ ... ]"), so its findings are not silently lost.
+		alt := extractJSONArray(text)
+		if alt == "" {
+			return nil
+		}
+		if err := json.Unmarshal([]byte(alt), &raw); err != nil {
+			return nil
+		}
 	}
 
 	var out []Finding
