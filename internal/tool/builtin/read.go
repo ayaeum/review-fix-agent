@@ -71,6 +71,12 @@ func (ReadTool) Call(_ context.Context, input map[string]any, tc *tool.Context) 
 	}
 
 	lines := strings.Split(string(data), "\n")
+	// A trailing newline (the common case) makes Split yield a final empty
+	// element that is not a real line; dropping it avoids a phantom blank last
+	// line and an off-by-one "N lines total" count.
+	if len(lines) > 1 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 	var b strings.Builder
 	count := 0
 	for i := offset - 1; i < len(lines) && count < limit; i++ {
