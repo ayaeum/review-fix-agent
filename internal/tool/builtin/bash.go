@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -85,11 +86,18 @@ func (BashTool) Call(ctx context.Context, input map[string]any, tc *tool.Context
 	}
 	// Bound how long we wait for the group to die after cancellation.
 	c.WaitDelay = 5 * time.Second
-	out, err := c.CombinedOutput()
+	// Capture combined output with a hard cap so a command with massive output
+	// (e.g. cat of a large file, a very verbose test run) cannot buffer hundreds
+	// of MB into memory before the result is truncated. Using one writer for both
+	// streams makes os/exec serialize them through a single pipe (no race).
+	out := &cappedBuffer{limit: maxCommandOutputBytes}
+	c.Stdout = out
+	c.Stderr = out
+	err := c.Run()
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "$ %s\n", cmd)
-	b.Write(out)
+	b.Write(out.buf.Bytes())
 	record := func(passed bool, summary string) {
 		if tc != nil && tc.Sink != nil {
 			tc.Sink.RecordCommand(tool.CommandRecord{
@@ -118,9 +126,33 @@ func (BashTool) Call(ctx context.Context, input map[string]any, tc *tool.Context
 		// model can distinguish pass/fail, but keep the output.
 		return tool.Result{Text: truncate(b.String()), IsError: true}, nil
 	}
-	if len(out) == 0 {
+	if out.buf.Len() == 0 {
 		b.WriteString("[no output; exit code 0]")
 	}
 	record(true, "exit code 0")
 	return tool.Result{Text: truncate(b.String())}, nil
+}
+
+// maxCommandOutputBytes caps how much command output bash buffers in memory.
+// The result is previewed down to maxResultBytes anyway, so capturing more than
+// this only risks an OOM on a command that emits a huge stream.
+const maxCommandOutputBytes = 1 << 20 // 1 MiB
+
+// cappedBuffer accumulates up to limit bytes and silently discards the rest,
+// while reporting every write as fully consumed so the writing process is not
+// killed by a short write.
+type cappedBuffer struct {
+	buf   bytes.Buffer
+	limit int
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	if remain := c.limit - c.buf.Len(); remain > 0 {
+		if len(p) <= remain {
+			c.buf.Write(p)
+		} else {
+			c.buf.Write(p[:remain])
+		}
+	}
+	return len(p), nil
 }

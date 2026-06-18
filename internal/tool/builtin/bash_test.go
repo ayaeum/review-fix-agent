@@ -49,3 +49,46 @@ func TestBashTimeoutCancels(t *testing.T) {
 		t.Errorf("command was not cancelled promptly: took %s", elapsed)
 	}
 }
+
+func TestBashCapsHugeOutput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a process; skipped in -short")
+	}
+	tc := newReadCtx(t.TempDir())
+	// Emit far more than the capture cap; the tool must not buffer it all.
+	res, _ := BashTool{}.Call(context.Background(), map[string]any{
+		"command": "yes x | head -c 5000000", // ~5MB
+	}, tc)
+	if res.IsError {
+		t.Fatalf("command should succeed: %s", res.Text[:min2(200, len(res.Text))])
+	}
+	// Result is previewed down to maxResultBytes regardless of the 5MB stream.
+	if len(res.Text) > maxResultBytes+512 {
+		t.Errorf("output not capped: %d bytes", len(res.Text))
+	}
+}
+
+func TestCappedBufferDiscardsExcess(t *testing.T) {
+	b := &cappedBuffer{limit: 10}
+	n, _ := b.Write([]byte("hello"))
+	if n != 5 {
+		t.Errorf("Write reported %d, want 5 (full consume)", n)
+	}
+	n, _ = b.Write([]byte("world!!!!!")) // would overflow
+	if n != 10 {
+		t.Errorf("Write reported %d, want 10 (full consume even when capped)", n)
+	}
+	if b.buf.Len() != 10 {
+		t.Errorf("buffered %d bytes, want cap 10", b.buf.Len())
+	}
+	if b.buf.String() != "helloworld" {
+		t.Errorf("buffered = %q, want 'helloworld'", b.buf.String())
+	}
+}
+
+func min2(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
