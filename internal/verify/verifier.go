@@ -41,7 +41,14 @@ func Suggest(cwd string, changedFiles ...string) []string {
 			out = append(out, runner+" run lint")
 		}
 		if scripts["test"] {
-			out = append(out, runner+" test")
+			// `bun test` runs Bun's built-in test runner, not the package.json
+			// "test" script; `bun run test` runs the script. npm/yarn/pnpm treat
+			// `<pm> test` as the script already.
+			if runner == "bun" {
+				out = append(out, "bun run test")
+			} else {
+				out = append(out, runner+" test")
+			}
 		} else {
 			// Many projects only define namespaced test scripts (test:unit,
 			// test:ci, ...). Suggest those so the agent still has a test command.

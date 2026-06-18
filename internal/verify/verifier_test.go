@@ -103,3 +103,18 @@ func TestSuggestNodeDependencyNamedTestNotMatched(t *testing.T) {
 		t.Errorf("dependency named 'test' wrongly treated as a script: %v", got)
 	}
 }
+
+func TestSuggestBunUsesRunForTestScript(t *testing.T) {
+	dir := t.TempDir()
+	writePkg(t, dir, `{"scripts":{"test":"vitest"}}`)
+	if err := os.WriteFile(filepath.Join(dir, "bun.lock"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := Suggest(dir)
+	if !contains(got, "bun run test") {
+		t.Errorf("bun should run the test script via 'bun run test', got %v", got)
+	}
+	if contains(got, "bun test") {
+		t.Errorf("'bun test' runs bun's own runner, not the script: %v", got)
+	}
+}
