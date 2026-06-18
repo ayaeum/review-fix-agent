@@ -95,3 +95,30 @@ func TestDoWithRetryRespectsContextCancel(t *testing.T) {
 		t.Fatal("expected context cancellation error")
 	}
 }
+
+func TestDoWithRetryHonorsRetryAfter(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.Header().Set("Retry-After", "1") // ask for a 1s wait
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	start := time.Now()
+	resp, err := doWithRetry(context.Background(), srv.Client(), newReqFn(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	// Must have waited ~1s per Retry-After, not the 500ms default first backoff.
+	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
+		t.Errorf("Retry-After not honored: waited only %s", elapsed)
+	}
+}

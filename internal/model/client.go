@@ -10,6 +10,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/review-fix-agent/rfa/internal/message"
@@ -36,6 +38,7 @@ func transientStatus(code int) bool {
 // cancellation. The caller owns the returned resp.Body.
 func doWithRetry(ctx context.Context, hc *http.Client, newReq func() (*http.Request, error)) (*http.Response, error) {
 	const maxAttempts = 4
+	const maxBackoff = 30 * time.Second
 	backoff := 500 * time.Millisecond
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -46,6 +49,9 @@ func doWithRetry(ctx context.Context, hc *http.Client, newReq func() (*http.Requ
 			case <-time.After(backoff):
 			}
 			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
 		}
 		req, err := newReq()
 		if err != nil {
@@ -57,6 +63,13 @@ func doWithRetry(ctx context.Context, hc *http.Client, newReq func() (*http.Requ
 			continue
 		}
 		if attempt < maxAttempts-1 && transientStatus(resp.StatusCode) {
+			// Honor a server-provided Retry-After (e.g. on 429) over our backoff.
+			if ra := retryAfterDelay(resp); ra >= 0 {
+				if ra > maxBackoff {
+					ra = maxBackoff
+				}
+				backoff = ra
+			}
 			// Drain a bounded prefix so the connection can be reused, then retry.
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8*1024))
 			_ = resp.Body.Close()
@@ -66,6 +79,19 @@ func doWithRetry(ctx context.Context, hc *http.Client, newReq func() (*http.Requ
 		return resp, nil
 	}
 	return nil, lastErr
+}
+
+// retryAfterDelay parses a Retry-After header expressed in integer seconds,
+// returning a negative duration when it is absent or not a plain seconds value.
+func retryAfterDelay(resp *http.Response) time.Duration {
+	v := strings.TrimSpace(resp.Header.Get("Retry-After"))
+	if v == "" {
+		return -1
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return -1
 }
 
 // newStreamingHTTPClient returns an *http.Client tuned for streaming SSE. It
