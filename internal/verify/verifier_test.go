@@ -1,6 +1,10 @@
 package verify
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestTargetedGoTests(t *testing.T) {
 	got := targetedGoTests([]string{
@@ -46,5 +50,56 @@ func TestMakeHasTarget(t *testing.T) {
 		if got := makeHasTarget(c.mk, c.target); got != c.want {
 			t.Errorf("%s: makeHasTarget=%v want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func writePkg(t *testing.T, dir, json string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(json), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func contains(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSuggestNodePlainTest(t *testing.T) {
+	dir := t.TempDir()
+	writePkg(t, dir, `{"scripts":{"test":"jest","lint":"eslint ."}}`)
+	got := Suggest(dir)
+	if !contains(got, "npm test") {
+		t.Errorf("expected 'npm test', got %v", got)
+	}
+	if !contains(got, "npm run lint") {
+		t.Errorf("expected 'npm run lint', got %v", got)
+	}
+}
+
+func TestSuggestNodeNamespacedTestFallback(t *testing.T) {
+	dir := t.TempDir()
+	// No plain "test" script — only namespaced ones.
+	writePkg(t, dir, `{"scripts":{"test:unit":"jest unit","test:e2e":"playwright"}}`)
+	got := Suggest(dir)
+	if !contains(got, "npm run test:unit") || !contains(got, "npm run test:e2e") {
+		t.Errorf("expected namespaced test scripts, got %v", got)
+	}
+	if contains(got, "npm test") {
+		t.Errorf("must not suggest plain 'npm test' when absent: %v", got)
+	}
+}
+
+func TestSuggestNodeDependencyNamedTestNotMatched(t *testing.T) {
+	dir := t.TempDir()
+	// A dependency literally named "test" must NOT be taken as a test script.
+	writePkg(t, dir, `{"dependencies":{"test":"^1.0.0"},"scripts":{"build":"tsc"}}`)
+	got := Suggest(dir)
+	if contains(got, "npm test") {
+		t.Errorf("dependency named 'test' wrongly treated as a script: %v", got)
 	}
 }

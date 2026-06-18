@@ -4,8 +4,10 @@
 package verify
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -29,16 +31,23 @@ func Suggest(cwd string, changedFiles ...string) []string {
 		out = append(out, "cargo check", "cargo clippy", "cargo test")
 	case exists("package.json"):
 		runner := nodeRunner(cwd)
-		if hasNodeScript(cwd, "typecheck") {
+		scripts := nodeScripts(cwd)
+		if scripts["typecheck"] {
 			out = append(out, runner+" run typecheck")
 		} else if exists("tsconfig.json") {
 			out = append(out, "npx tsc --noEmit")
 		}
-		if hasNodeScript(cwd, "lint") {
+		if scripts["lint"] {
 			out = append(out, runner+" run lint")
 		}
-		if hasNodeScript(cwd, "test") {
+		if scripts["test"] {
 			out = append(out, runner+" test")
+		} else {
+			// Many projects only define namespaced test scripts (test:unit,
+			// test:ci, ...). Suggest those so the agent still has a test command.
+			for _, name := range namespacedTestScripts(scripts) {
+				out = append(out, runner+" run "+name)
+			}
 		}
 	case exists("pyproject.toml") || exists("setup.py") || exists("pytest.ini") || exists("tox.ini"):
 		out = append(out, "pytest -q")
@@ -114,9 +123,39 @@ func nodeRunner(cwd string) string {
 	}
 }
 
-func hasNodeScript(cwd, name string) bool {
-	pkg := readFile(filepath.Join(cwd, "package.json"))
-	return strings.Contains(pkg, "\""+name+"\"")
+// nodeScripts parses the "scripts" object of package.json. Parsing (rather than
+// a substring scan of the whole file) avoids both false positives — a dependency
+// literally named "test" — and false negatives, and lets callers see namespaced
+// script names like "test:unit".
+func nodeScripts(cwd string) map[string]bool {
+	data := readFile(filepath.Join(cwd, "package.json"))
+	if data == "" {
+		return nil
+	}
+	var pkg struct {
+		Scripts map[string]json.RawMessage `json:"scripts"`
+	}
+	if json.Unmarshal([]byte(data), &pkg) != nil {
+		return nil
+	}
+	out := make(map[string]bool, len(pkg.Scripts))
+	for name := range pkg.Scripts {
+		out[name] = true
+	}
+	return out
+}
+
+// namespacedTestScripts returns sorted "test:*" script names (e.g. test:unit),
+// used as a fallback when no plain "test" script exists.
+func namespacedTestScripts(scripts map[string]bool) []string {
+	var out []string
+	for name := range scripts {
+		if strings.HasPrefix(name, "test:") {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func readFile(p string) string {
