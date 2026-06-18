@@ -90,3 +90,69 @@ func TestVerificationStatusAndMarkdown(t *testing.T) {
 		t.Errorf("no-baseline report must flag the missing baseline:\n%s", md3)
 	}
 }
+
+func TestParseReport(t *testing.T) {
+	payload := map[string]any{
+		"summary":       "flip operator",
+		"changed_files": []any{"add.go"},
+		"verification": []any{
+			map[string]any{"command": "go test", "passed": true, "summary": "ok", "baseline_passed": false},
+		},
+		"residual_risk": "none",
+	}
+	r, err := ParseReport(payload)
+	if err != nil {
+		t.Fatalf("ParseReport: %v", err)
+	}
+	if r.Summary != "flip operator" || len(r.ChangedFiles) != 1 || len(r.Verification) != 1 {
+		t.Errorf("parsed report = %+v", r)
+	}
+	if r.Verification[0].BaselinePassed == nil || *r.Verification[0].BaselinePassed {
+		t.Errorf("baseline_passed should parse to a non-nil false")
+	}
+	if !r.ProvedFix() {
+		t.Error("FAIL->PASS report should be ProvedFix")
+	}
+}
+
+func TestAllPassed(t *testing.T) {
+	if (Report{}).AllPassed() {
+		t.Error("no verification should not be AllPassed")
+	}
+	pass := Report{Verification: []Verification{{Command: "a", Passed: true}, {Command: "b", Passed: true}}}
+	if !pass.AllPassed() {
+		t.Error("all-passing should be AllPassed")
+	}
+	mixed := Report{Verification: []Verification{{Command: "a", Passed: true}, {Command: "b", Passed: false}}}
+	if mixed.AllPassed() {
+		t.Error("a failing command means not AllPassed")
+	}
+}
+
+// TestMarkdownEnglish covers the English rendering branch (no Han characters),
+// including patch scope, residual risk, and the no-baseline warning.
+func TestMarkdownEnglish(t *testing.T) {
+	r := Report{
+		Summary:      "fixed the off-by-one",
+		PatchScope:   "only loop bound",
+		ChangedFiles: []string{"loop.go"},
+		Verification: []Verification{{Command: "go test", Passed: true, Summary: "passes"}},
+		ResidualRisk: "none observed",
+	}
+	md := r.Markdown()
+	for _, want := range []string{"# Fix Report", "Patch scope:", "Changed files", "loop.go", "Verification", "[PASS]", "Residual risk", "No pre-fix baseline"} {
+		if !contains(md, want) {
+			t.Errorf("English markdown missing %q\n%s", want, md)
+		}
+	}
+
+	empty := Report{Summary: "x"}
+	if !contains(empty.Markdown(), "(none)") {
+		t.Errorf("empty changed files should render (none):\n%s", empty.Markdown())
+	}
+	if !contains(r.JSON(), "\"summary\"") {
+		t.Error("JSON should contain summary field")
+	}
+}
+
+func contains(s, sub string) bool { return strings.Contains(s, sub) }
